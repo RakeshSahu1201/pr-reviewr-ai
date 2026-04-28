@@ -71,7 +71,7 @@ jobs:
           username: ${{ secrets.PI_SERVER_USER }}
           key: ${{ secrets.PI_SERVER_SSH_KEY }}
           port: ${{ secrets.PI_SERVER_PORT }}  # Using your custom SSH port
-          envs: DB_USER,DB_PASSWORD,DB_HOST,GITLAB_TOKEN,API_KEY 
+          envs: DB_USER,DB_PASSWORD,DB_HOST,ENCRYPTION_KEY,JWT_SECRET 
           script: |
             # Ensure folder exists, then enter it
             mkdir -p /opt/myproject
@@ -81,8 +81,8 @@ jobs:
             echo "DB_USER=$DB_USER" > .env
             echo "DB_PASSWORD=$DB_PASSWORD" >> .env
             echo "DB_HOST=$DB_HOST" >> .env
-            echo "GITLAB_TOKEN=$GITLAB_TOKEN" >> .env
-            echo "API_KEY=$API_KEY" >> .env
+            echo "ENCRYPTION_KEY=$ENCRYPTION_KEY" >> .env
+            echo "JWT_SECRET=$JWT_SECRET" >> .env
             
             docker-compose pull
             docker-compose up -d
