@@ -1,0 +1,139 @@
+name: pr-reviewer-ai
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: 'Choose deployment target'
+        required: true
+        default: 'pi-server'
+        type: choice
+        options:
+          - pi-server
+          - cloud
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+          
+      - name: Build and Push Go App Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: magic-aim/pr-reviewer-ai:latest
+
+  # ----------------------------------------
+  # THE PI SERVER DEPLOYMENT (SSH / PUSH)
+  # ----------------------------------------
+  deploy-pi-server:
+    needs: build-and-push
+    if: ${{ inputs.target_env == 'pi-server' }}
+    runs-on: ubuntu-latest  # Changed from self-hosted
+    
+    environment: pi-server 
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        
+      # 1. Physically copy the docker-compose.yml to the Pi
+      - name: Copy files to Pi
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ secrets.PI_SERVER_IP }}
+          username: ${{ secrets.PI_SERVER_USER }}
+          key: ${{ secrets.PI_SERVER_SSH_KEY }}
+          port: ${{ secrets.PI_SERVER_PORT }}  # Using your custom SSH port
+          source: "docker-compose.yml"
+          target: "/opt/myproject"
+          
+      # 2. Execute commands over SSH
+      - name: Execute deployment on Pi
+        uses: appleboy/ssh-action@v1.0.0
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          API_KEY: ${{ secrets.API_KEY }}
+        with:
+          host: ${{ secrets.PI_SERVER_IP }}
+          username: ${{ secrets.PI_SERVER_USER }}
+          key: ${{ secrets.PI_SERVER_SSH_KEY }}
+          port: ${{ secrets.PI_SERVER_PORT }}  # Using your custom SSH port
+          envs: DB_USER,DB_PASSWORD,DB_HOST,GITLAB_TOKEN,API_KEY 
+          script: |
+            # Ensure folder exists, then enter it
+            mkdir -p /opt/myproject
+            cd /opt/myproject
+            
+            # Rebuild the .env file remotely
+            echo "DB_USER=$DB_USER" > .env
+            echo "DB_PASSWORD=$DB_PASSWORD" >> .env
+            echo "DB_HOST=$DB_HOST" >> .env
+            echo "GITLAB_TOKEN=$GITLAB_TOKEN" >> .env
+            echo "API_KEY=$API_KEY" >> .env
+            
+            docker-compose pull
+            docker-compose up -d
+
+  # ----------------------------------------
+  # THE CLOUD SERVER DEPLOYMENT (SSH / PUSH)
+  # ----------------------------------------
+  deploy-cloud:
+    needs: build-and-push
+    if: ${{ inputs.target_env == 'cloud' }}
+    runs-on: ubuntu-latest
+    
+    environment: cloud 
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Ensure the docker-compose file gets copied to the cloud server too!
+      - name: Copy files to Cloud
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ secrets.CLOUD_SERVER_IP }}
+          username: ${{ secrets.CLOUD_SERVER_USER }}
+          key: ${{ secrets.CLOUD_SERVER_SSH_KEY }}
+          source: "docker-compose.yml"
+          target: "/opt/myproject"
+          
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          API_KEY: ${{ secrets.API_KEY }}
+        with:
+          host: ${{ secrets.CLOUD_SERVER_IP }}
+          username: ${{ secrets.CLOUD_SERVER_USER }}
+          key: ${{ secrets.CLOUD_SERVER_SSH_KEY }}
+          # Cloud typically uses default port 22, so we don't declare a port here
+          envs: DB_USER,DB_PASSWORD,DB_HOST,GITLAB_TOKEN,API_KEY 
+          script: |
+            mkdir -p /opt/myproject
+            cd /opt/myproject
+            
+            echo "DB_USER=$DB_USER" > .env
+            echo "DB_PASSWORD=$DB_PASSWORD" >> .env
+            echo "DB_HOST=$DB_HOST" >> .env
+            echo "GITLAB_TOKEN=$GITLAB_TOKEN" >> .env
+            echo "API_KEY=$API_KEY" >> .env
+            
+            docker-compose pull
+            docker-compose up -d

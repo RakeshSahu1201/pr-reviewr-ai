@@ -1,0 +1,24 @@
+# Ignore everything that shouldn't be in the Docker build context
+.git
+.env
+.env.*
+!.env.example
+
+# Go build artifacts
+*.exe
+*.test
+/pr-reviewer-ai
+
+# Test / coverage
+*.out
+coverage.html
+
+# IDE / OS artifacts
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Docker itself
+Dockerfile
+docker-compose*.yml
