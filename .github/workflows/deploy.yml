@@ -60,12 +60,12 @@ jobs:
       # 2. Execute commands over SSH
       - name: Execute deployment on Pi
         uses: appleboy/ssh-action@v1.0.0
-        env:
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_HOST: ${{ secrets.DB_HOST }}
-          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
-          API_KEY: ${{ secrets.API_KEY }}
+        # env:
+        #   DB_USER: ${{ secrets.DB_USER }}
+        #   DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        #   DB_HOST: ${{ secrets.DB_HOST }}
+        #   GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+        #   API_KEY: ${{ secrets.API_KEY }}
         with:
           host: ${{ secrets.PI_SERVER_IP }}
           username: ${{ secrets.PI_SERVER_USER }}
