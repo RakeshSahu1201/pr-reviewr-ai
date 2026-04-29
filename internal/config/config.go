@@ -58,7 +58,7 @@ func Load() (*Config, error) {
 	pgUser := getOrDefault("POSTGRES_USER", "mr_reviewer_app")
 	pgPass := getOrDefault("POSTGRES_PASSWORD", "pr_reviewer")
 	pgDB := getOrDefault("POSTGRES_DB", "pr_reviewer")
-	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%s/%s", pgUser, pgPass, pgHost, pgPort, pgDB)
+	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?search_path=mr_reviewer_app", pgUser, pgPass, pgHost, pgPort, pgDB)
 	encKeyHex, err := require("ENCRYPTION_KEY")
 	if err != nil {
 		return nil, err

@@ -25,10 +25,11 @@ func NewJWTService(secret []byte, expiryHours int) *JWTService {
 	return &JWTService{secret: secret, expiryHours: expiryHours}
 }
 
-// Sign creates a signed JWT embedding the userID.
-func (j *JWTService) Sign(userID string) (string, error) {
+// Sign creates a signed JWT embedding the userID and username.
+func (j *JWTService) Sign(userID, username string) (string, error) {
 	claims := jwt.MapClaims{
 		"sub": userID,
+		"username": username,
 		"exp": time.Now().Add(time.Duration(j.expiryHours) * time.Hour).Unix(),
 		"iat": time.Now().Unix(),
 	}
@@ -40,8 +41,8 @@ func (j *JWTService) Sign(userID string) (string, error) {
 	return signed, nil
 }
 
-// Validate parses and verifies a JWT string. Returns the embedded userID.
-func (j *JWTService) Validate(tokenStr string) (string, error) {
+// Validate parses and verifies a JWT string. Returns the embedded userID and username.
+func (j *JWTService) Validate(tokenStr string) (string, string, error) {
 	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("jwt: unexpected signing method: %v", t.Header["alg"])
@@ -50,19 +51,22 @@ func (j *JWTService) Validate(tokenStr string) (string, error) {
 	}, jwt.WithValidMethods([]string{"HS256"}))
 
 	if err != nil || !token.Valid {
-		return "", fmt.Errorf("jwt: invalid token: %w", err)
+		return "", "", fmt.Errorf("jwt: invalid token: %w", err)
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return "", fmt.Errorf("jwt: could not parse claims")
+		return "", "", fmt.Errorf("jwt: could not parse claims")
 	}
 
 	userID, ok := claims["sub"].(string)
 	if !ok || userID == "" {
-		return "", fmt.Errorf("jwt: missing sub claim")
+		return "", "", fmt.Errorf("jwt: missing sub claim")
 	}
-	return userID, nil
+	
+	username, _ := claims["username"].(string)
+	
+	return userID, username, nil
 }
 
 // requireAuth is middleware that extracts the Bearer JWT, validates it,
@@ -77,7 +81,7 @@ func requireAuth(jwtSvc *JWTService) gin.HandlerFunc {
 		}
 
 		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-		userID, err := jwtSvc.Validate(tokenStr)
+		userID, username, err := jwtSvc.Validate(tokenStr)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 			c.Abort()
@@ -85,6 +89,7 @@ func requireAuth(jwtSvc *JWTService) gin.HandlerFunc {
 		}
 
 		c.Set("user_id", userID)
+		c.Set("username", username)
 		c.Next()
 	}
 }

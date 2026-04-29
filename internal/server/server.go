@@ -24,9 +24,9 @@ type Server struct {
 	router     *gin.Engine
 }
 
-// GitProviderFactory creates a GitProvider for a given user token.
+// GitProviderFactory creates a GitProvider for a given user token and base URL.
 // Injected from app.go to keep server.go provider-agnostic.
-type GitProviderFactory func(token string) (git.GitProvider, error)
+type GitProviderFactory func(webUrl, token string) (git.GitProvider, error)
 
 // New creates a Server and registers all routes.
 func New(
@@ -55,6 +55,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) registerRoutes() {
 	s.router.GET("/healthz", s.handleHealthz)
+	s.router.POST("/api/auth/register", s.handleRegister)
 	s.router.POST("/api/auth/login", s.handleLogin)
 	s.router.DELETE("/api/auth/logout", requireAuth(s.jwtSvc), s.handleLogout)
 	s.router.POST("/api/review", requireAuth(s.jwtSvc), s.handleReview)
@@ -67,22 +68,53 @@ func (s *Server) handleHealthz(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-func (s *Server) handleLogin(c *gin.Context) {
+func (s *Server) handleRegister(c *gin.Context) {
 	var body struct {
-		UserID string `json:"user_id"`
-		Token  string `json:"token"`
+		Username      string `json:"username"`
+		Password      string `json:"password"`
+		Token         string `json:"token"`
+		GitlabBaseUrl string `json:"webUrl"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
 		return
 	}
 
-	if err := s.authSvc.Login(body.UserID, body.Token); err != nil {
+	if _, err := s.authSvc.Register(body.Username, body.Password, body.Token, body.GitlabBaseUrl); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "user created successfully"})
+}
+
+func (s *Server) handleLogin(c *gin.Context) {
+	var body struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
+		return
+	}
+
+	if body.Username == "" || body.Password == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "username and password are required"})
+		return
+	}
+
+	if err := s.authSvc.Login(body.Username, body.Password); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	jwt, err := s.jwtSvc.Sign(body.UserID)
+	gitlabUserID, err := s.authSvc.GetGitlabUserID(body.Username)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve user info"})
+		return
+	}
+
+	jwt, err := s.jwtSvc.Sign(strconv.Itoa(gitlabUserID), body.Username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate session token"})
 		return
@@ -125,7 +157,14 @@ func (s *Server) handleReview(c *gin.Context) {
 		return
 	}
 
-	provider, err := s.gitFactory(token)
+	webUrl, err := s.authSvc.GetWebUrl(userID)
+	if err != nil {
+		// Fallback to error or default? The user registered with a webUrl, so we should use it.
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve GitLab base URL"})
+		return
+	}
+
+	provider, err := s.gitFactory(webUrl, token)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to build git provider: %v", err)})
 		return

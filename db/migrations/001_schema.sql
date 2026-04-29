@@ -13,7 +13,10 @@ SET search_path TO mr_reviewer_app;
 -- users: lightweight user registry
 -- ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
-    user_id     TEXT        PRIMARY KEY,
+    id          SERIAL      PRIMARY KEY,
+    username    TEXT        NOT NULL UNIQUE,
+    password    TEXT,
+    gitlab_user_id INT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -22,8 +25,10 @@ CREATE TABLE IF NOT EXISTS users (
 -- The token is encrypted with AES-256-GCM before being stored.
 -- ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS user_tokens (
-    user_id         TEXT        PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
-    encrypted_token TEXT        NOT NULL,
+    id              SERIAL      PRIMARY KEY,
+    user_id         INT         NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    token           TEXT        NOT NULL,
+    web_url         TEXT,
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -32,7 +37,7 @@ CREATE TABLE IF NOT EXISTS user_tokens (
 -- ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS review_logs (
     id            BIGSERIAL   PRIMARY KEY,
-    user_id       TEXT        NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    user_id       INT         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     mr_id         INT         NOT NULL,
     project_id    TEXT        NOT NULL,
     comment       TEXT        NOT NULL,

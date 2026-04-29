@@ -4,9 +4,12 @@ package repository
 
 import "time"
 
-// TokenRepository manages encrypted GitLab Personal Access Tokens.
+// TokenRepository manages user credentials and encrypted GitLab Personal Access Tokens.
 // Business logic (AuthService) depends only on this interface.
 type TokenRepository interface {
+	// RegisterUser creates a new user with their password and gitlab details, and upserts their token.
+	RegisterUser(username, passwordHash, encryptedToken, encryptedWebUrl string, gitlabUserId int) error
+
 	// StoreToken upserts an encrypted token for the user.
 	// It also creates the user row if one does not exist.
 	StoreToken(userID string, encryptedToken string) error
@@ -17,6 +20,15 @@ type TokenRepository interface {
 
 	// DeleteToken removes the user's stored token.
 	DeleteToken(userID string) error
+
+	// LoginUser validates the user credentials and returns the user info.
+	LoginUser(username, password string) error
+
+	// GetWebUrl retrieves the encrypted GitLab base URL for the user.
+	GetWebUrl(userID string) (string, error)
+
+	// GetGitlabUserID retrieves the GitLab numeric user ID for the given username.
+	GetGitlabUserID(username string) (int, error)
 }
 
 // ReviewLog is a single audit record returned by ReviewLogRepository.
