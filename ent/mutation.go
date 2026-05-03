@@ -1348,6 +1348,8 @@ type UserTokenMutation struct {
 	id            *int
 	token         *string
 	web_url       *string
+	project_id    *int64
+	addproject_id *int64
 	updated_at    *time.Time
 	clearedFields map[string]struct{}
 	owner         *int
@@ -1540,6 +1542,76 @@ func (m *UserTokenMutation) ResetWebURL() {
 	delete(m.clearedFields, usertoken.FieldWebURL)
 }
 
+// SetProjectID sets the "project_id" field.
+func (m *UserTokenMutation) SetProjectID(i int64) {
+	m.project_id = &i
+	m.addproject_id = nil
+}
+
+// ProjectID returns the value of the "project_id" field in the mutation.
+func (m *UserTokenMutation) ProjectID() (r int64, exists bool) {
+	v := m.project_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProjectID returns the old "project_id" field's value of the UserToken entity.
+// If the UserToken object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserTokenMutation) OldProjectID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProjectID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProjectID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProjectID: %w", err)
+	}
+	return oldValue.ProjectID, nil
+}
+
+// AddProjectID adds i to the "project_id" field.
+func (m *UserTokenMutation) AddProjectID(i int64) {
+	if m.addproject_id != nil {
+		*m.addproject_id += i
+	} else {
+		m.addproject_id = &i
+	}
+}
+
+// AddedProjectID returns the value that was added to the "project_id" field in this mutation.
+func (m *UserTokenMutation) AddedProjectID() (r int64, exists bool) {
+	v := m.addproject_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearProjectID clears the value of the "project_id" field.
+func (m *UserTokenMutation) ClearProjectID() {
+	m.project_id = nil
+	m.addproject_id = nil
+	m.clearedFields[usertoken.FieldProjectID] = struct{}{}
+}
+
+// ProjectIDCleared returns if the "project_id" field was cleared in this mutation.
+func (m *UserTokenMutation) ProjectIDCleared() bool {
+	_, ok := m.clearedFields[usertoken.FieldProjectID]
+	return ok
+}
+
+// ResetProjectID resets all changes to the "project_id" field.
+func (m *UserTokenMutation) ResetProjectID() {
+	m.project_id = nil
+	m.addproject_id = nil
+	delete(m.clearedFields, usertoken.FieldProjectID)
+}
+
 // SetUpdatedAt sets the "updated_at" field.
 func (m *UserTokenMutation) SetUpdatedAt(t time.Time) {
 	m.updated_at = &t
@@ -1649,12 +1721,15 @@ func (m *UserTokenMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserTokenMutation) Fields() []string {
-	fields := make([]string, 0, 3)
+	fields := make([]string, 0, 4)
 	if m.token != nil {
 		fields = append(fields, usertoken.FieldToken)
 	}
 	if m.web_url != nil {
 		fields = append(fields, usertoken.FieldWebURL)
+	}
+	if m.project_id != nil {
+		fields = append(fields, usertoken.FieldProjectID)
 	}
 	if m.updated_at != nil {
 		fields = append(fields, usertoken.FieldUpdatedAt)
@@ -1671,6 +1746,8 @@ func (m *UserTokenMutation) Field(name string) (ent.Value, bool) {
 		return m.Token()
 	case usertoken.FieldWebURL:
 		return m.WebURL()
+	case usertoken.FieldProjectID:
+		return m.ProjectID()
 	case usertoken.FieldUpdatedAt:
 		return m.UpdatedAt()
 	}
@@ -1686,6 +1763,8 @@ func (m *UserTokenMutation) OldField(ctx context.Context, name string) (ent.Valu
 		return m.OldToken(ctx)
 	case usertoken.FieldWebURL:
 		return m.OldWebURL(ctx)
+	case usertoken.FieldProjectID:
+		return m.OldProjectID(ctx)
 	case usertoken.FieldUpdatedAt:
 		return m.OldUpdatedAt(ctx)
 	}
@@ -1711,6 +1790,13 @@ func (m *UserTokenMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetWebURL(v)
 		return nil
+	case usertoken.FieldProjectID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProjectID(v)
+		return nil
 	case usertoken.FieldUpdatedAt:
 		v, ok := value.(time.Time)
 		if !ok {
@@ -1725,13 +1811,21 @@ func (m *UserTokenMutation) SetField(name string, value ent.Value) error {
 // AddedFields returns all numeric fields that were incremented/decremented during
 // this mutation.
 func (m *UserTokenMutation) AddedFields() []string {
-	return nil
+	var fields []string
+	if m.addproject_id != nil {
+		fields = append(fields, usertoken.FieldProjectID)
+	}
+	return fields
 }
 
 // AddedField returns the numeric value that was incremented/decremented on a field
 // with the given name. The second boolean return value indicates that this field
 // was not set, or was not defined in the schema.
 func (m *UserTokenMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case usertoken.FieldProjectID:
+		return m.AddedProjectID()
+	}
 	return nil, false
 }
 
@@ -1740,6 +1834,13 @@ func (m *UserTokenMutation) AddedField(name string) (ent.Value, bool) {
 // type.
 func (m *UserTokenMutation) AddField(name string, value ent.Value) error {
 	switch name {
+	case usertoken.FieldProjectID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddProjectID(v)
+		return nil
 	}
 	return fmt.Errorf("unknown UserToken numeric field %s", name)
 }
@@ -1750,6 +1851,9 @@ func (m *UserTokenMutation) ClearedFields() []string {
 	var fields []string
 	if m.FieldCleared(usertoken.FieldWebURL) {
 		fields = append(fields, usertoken.FieldWebURL)
+	}
+	if m.FieldCleared(usertoken.FieldProjectID) {
+		fields = append(fields, usertoken.FieldProjectID)
 	}
 	return fields
 }
@@ -1768,6 +1872,9 @@ func (m *UserTokenMutation) ClearField(name string) error {
 	case usertoken.FieldWebURL:
 		m.ClearWebURL()
 		return nil
+	case usertoken.FieldProjectID:
+		m.ClearProjectID()
+		return nil
 	}
 	return fmt.Errorf("unknown UserToken nullable field %s", name)
 }
@@ -1781,6 +1888,9 @@ func (m *UserTokenMutation) ResetField(name string) error {
 		return nil
 	case usertoken.FieldWebURL:
 		m.ResetWebURL()
+		return nil
+	case usertoken.FieldProjectID:
+		m.ResetProjectID()
 		return nil
 	case usertoken.FieldUpdatedAt:
 		m.ResetUpdatedAt()

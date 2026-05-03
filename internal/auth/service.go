@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"pr-reviewer-ai/ent"
 	"pr-reviewer-ai/internal/repository"
 	"strings"
 	"time"
@@ -22,10 +23,6 @@ type AuthService struct {
 }
 
 // NewAuthService creates an AuthService.
-//
-//	repo      – concrete TokenRepository (Postgres, in-memory mock, etc.)
-//	encrypt   – encrypts a plaintext token; typically crypto.Encrypt bound to a key
-//	decrypt   – decrypts a stored ciphertext; typically crypto.Decrypt bound to a key
 func NewAuthService(
 	repo repository.TokenRepository,
 	encrypt func(string) (string, error),
@@ -89,34 +86,36 @@ func (a *AuthService) Register(username, password, token, webUrl string) (int, e
 	if err != nil {
 		return 0, fmt.Errorf("auth: encryption failed: %w", err)
 	}
+	encryptedWebUrl, err := a.encrypt(webUrl)
+	if err != nil {
+		return 0, fmt.Errorf("auth: encryption failed: %w", err)
+	}
 
-	if err := a.repo.RegisterUser(username, string(hash), encryptedToken, webUrl, gitlabUserID); err != nil {
+	if err := a.repo.RegisterUser(username, string(hash), encryptedToken, encryptedWebUrl, gitlabUserID); err != nil {
 		return 0, fmt.Errorf("auth: failed to register user: %w", err)
 	}
 
 	return gitlabUserID, nil
 }
 
-// Login validates, encrypts, and persists the Personal Access Token for userID.
-func (a *AuthService) Login(username, password string) error {
+// Login validates credentials and returns the user object.
+func (a *AuthService) Login(username, password string) (*ent.User, error) {
 	if strings.TrimSpace(username) == "" || strings.TrimSpace(password) == "" {
-		return errors.New("auth: username and password must not be empty")
+		return nil, errors.New("auth: username and password must not be empty")
 	}
 
-	if err := a.repo.LoginUser(username, password); err != nil {
-		return fmt.Errorf("auth: failed to login user: %w", err)
+	user, err := a.repo.LoginUser(username, password)
+	if err != nil {
+		return nil, fmt.Errorf("auth: failed to login user: %w", err)
 	}
-	return nil
+	return user, nil
 }
 
-// Login validates, encrypts, and persists the Personal Access Token for userID.
-func (a *AuthService) StoreToken(userID, rawToken string) error {
+// StoreToken validates, encrypts, and persists the Personal Access Token for userID.
+func (a *AuthService) StoreToken(userID int64, rawToken string) error {
 	rawToken = strings.TrimSpace(rawToken)
 	if rawToken == "" {
 		return errors.New("auth: token must not be empty")
-	}
-	if strings.TrimSpace(userID) == "" {
-		return errors.New("auth: user_id must not be empty")
 	}
 
 	encrypted, err := a.encrypt(rawToken)
@@ -130,16 +129,8 @@ func (a *AuthService) StoreToken(userID, rawToken string) error {
 	return nil
 }
 
-// Logout removes the stored token for userID.
-func (a *AuthService) Logout(userID string) error {
-	if err := a.repo.DeleteToken(userID); err != nil {
-		return fmt.Errorf("auth: failed to delete token: %w", err)
-	}
-	return nil
-}
-
 // GetToken retrieves and decrypts the stored token for userID.
-func (a *AuthService) GetToken(userID string) (string, error) {
+func (a *AuthService) GetToken(userID int64) (string, error) {
 	enc, err := a.repo.GetToken(userID)
 	if err != nil {
 		return "", fmt.Errorf("auth: failed to load token: %w", err)
@@ -153,7 +144,7 @@ func (a *AuthService) GetToken(userID string) (string, error) {
 }
 
 // GetWebUrl retrieves and decrypts the stored GitLab base URL for userID.
-func (a *AuthService) GetWebUrl(userID string) (string, error) {
+func (a *AuthService) GetWebUrl(userID int64) (string, error) {
 	enc, err := a.repo.GetWebUrl(userID)
 	if err != nil {
 		return "", fmt.Errorf("auth: failed to load webUrl: %w", err)
@@ -169,6 +160,26 @@ func (a *AuthService) GetWebUrl(userID string) (string, error) {
 // GetGitlabUserID returns the stored GitLab numeric user ID for the given username.
 func (a *AuthService) GetGitlabUserID(username string) (int, error) {
 	id, err := a.repo.GetGitlabUserID(username)
+	if err != nil {
+		return 0, fmt.Errorf("auth: %w", err)
+	}
+	return id, nil
+}
+
+// UpdateProjectID updates the default GitLab project ID for the user.
+func (a *AuthService) UpdateProjectID(userID int64, projectID int64) error {
+	if projectID <= 0 {
+		return errors.New("auth: project_id must be positive")
+	}
+	if err := a.repo.UpdateProjectID(userID, projectID); err != nil {
+		return fmt.Errorf("auth: %w", err)
+	}
+	return nil
+}
+
+// GetProjectID retrieves the default GitLab project ID for the user.
+func (a *AuthService) GetProjectID(userID int64) (int64, error) {
+	id, err := a.repo.GetProjectID(userID)
 	if err != nil {
 		return 0, fmt.Errorf("auth: %w", err)
 	}

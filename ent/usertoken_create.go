@@ -41,6 +41,20 @@ func (_c *UserTokenCreate) SetNillableWebURL(v *string) *UserTokenCreate {
 	return _c
 }
 
+// SetProjectID sets the "project_id" field.
+func (_c *UserTokenCreate) SetProjectID(v int64) *UserTokenCreate {
+	_c.mutation.SetProjectID(v)
+	return _c
+}
+
+// SetNillableProjectID sets the "project_id" field if the given value is not nil.
+func (_c *UserTokenCreate) SetNillableProjectID(v *int64) *UserTokenCreate {
+	if v != nil {
+		_c.SetProjectID(*v)
+	}
+	return _c
+}
+
 // SetUpdatedAt sets the "updated_at" field.
 func (_c *UserTokenCreate) SetUpdatedAt(v time.Time) *UserTokenCreate {
 	_c.mutation.SetUpdatedAt(v)
@@ -151,6 +165,10 @@ func (_c *UserTokenCreate) createSpec() (*UserToken, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.WebURL(); ok {
 		_spec.SetField(usertoken.FieldWebURL, field.TypeString, value)
 		_node.WebURL = &value
+	}
+	if value, ok := _c.mutation.ProjectID(); ok {
+		_spec.SetField(usertoken.FieldProjectID, field.TypeInt64, value)
+		_node.ProjectID = &value
 	}
 	if value, ok := _c.mutation.UpdatedAt(); ok {
 		_spec.SetField(usertoken.FieldUpdatedAt, field.TypeTime, value)

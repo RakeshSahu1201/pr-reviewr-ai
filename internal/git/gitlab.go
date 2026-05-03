@@ -11,15 +11,15 @@ import (
 // It is the only file in the entire codebase that imports a GitLab-specific SDK.
 type GitLabProvider struct {
 	client    *gitlab.Client
-	projectID string
+	projectID int64
 }
 
 // NewGitLabProvider constructs a GitLabProvider.
 //
 //	baseURL   – GitLab instance URL, e.g. "https://gitlab.com"
 //	token     – Personal Access Token with api scope
-//	projectID – GitLab project ID or namespace/project path
-func NewGitLabProvider(baseURL, token, projectID string) (*GitLabProvider, error) {
+//	projectID – GitLab project numeric ID
+func NewGitLabProvider(baseURL, token string, projectID int64) (*GitLabProvider, error) {
 	client, err := gitlab.NewClient(token, gitlab.WithBaseURL(baseURL))
 	if err != nil {
 		return nil, fmt.Errorf("git: failed to create GitLab client: %w", err)
@@ -104,6 +104,32 @@ func (g *GitLabProvider) FetchRecentEvents(sinceEventID int) ([]UserEvent, error
 		userEvent.Ref = event.PushData.Ref
 
 		results = append(results, userEvent)
+	}
+
+	return results, nil
+}
+
+// ListProjects returns a list of projects accessible by the authenticated user.
+func (g *GitLabProvider) ListProjects() ([]Project, error) {
+	opts := &gitlab.ListProjectsOptions{
+		Membership: gitlab.Ptr(true),
+		Simple:     gitlab.Ptr(true),
+		ListOptions: gitlab.ListOptions{
+			PerPage: 100,
+		},
+	}
+
+	projects, _, err := g.client.Projects.ListProjects(opts)
+	if err != nil {
+		return nil, fmt.Errorf("git: ListProjects: %w", err)
+	}
+
+	var results []Project
+	for _, p := range projects {
+		results = append(results, Project{
+			ID:   int64(p.ID),
+			Name: p.NameWithNamespace,
+		})
 	}
 
 	return results, nil

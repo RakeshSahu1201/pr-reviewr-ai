@@ -4,29 +4,35 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"strconv"
+	"time"
+
 	"pr-reviewer-ai/internal/agent"
 	"pr-reviewer-ai/internal/auth"
+	"pr-reviewer-ai/internal/cache"
 	"pr-reviewer-ai/internal/git"
 	"pr-reviewer-ai/internal/llm"
+	"pr-reviewer-ai/internal/ratelimit"
 	"pr-reviewer-ai/internal/repository"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
 
 // Server holds all dependencies needed to handle HTTP requests.
 type Server struct {
-	authSvc    *auth.AuthService
-	logRepo    repository.ReviewLogRepository
-	jwtSvc     *JWTService
-	gitFactory GitProviderFactory
-	pipeline   *llm.Pipeline // nil when GEMINI_API_KEY is not set
-	router     *gin.Engine
+	authSvc      *auth.AuthService
+	logRepo      repository.ReviewLogRepository
+	jwtSvc       *JWTService
+	gitFactory   GitProviderFactory
+	pipeline     *llm.Pipeline // nil when no LLM API keys are set
+	sessionStore *cache.SessionStore
+	limiter      *ratelimit.Limiter
+	router       *gin.Engine
 }
 
-// GitProviderFactory creates a GitProvider for a given user token and base URL.
+// GitProviderFactory creates a GitProvider for a given user token, base URL, and optional project ID.
 // Injected from app.go to keep server.go provider-agnostic.
-type GitProviderFactory func(webUrl, token string) (git.GitProvider, error)
+type GitProviderFactory func(webUrl, token string, projectID int64) (git.GitProvider, error)
 
 // New creates a Server and registers all routes.
 func New(
@@ -35,14 +41,18 @@ func New(
 	jwtSvc *JWTService,
 	factory GitProviderFactory,
 	pipeline *llm.Pipeline,
+	sessionStore *cache.SessionStore,
+	limiter *ratelimit.Limiter,
 ) *Server {
 	s := &Server{
-		authSvc:    authSvc,
-		logRepo:    logRepo,
-		jwtSvc:     jwtSvc,
-		gitFactory: factory,
-		pipeline:   pipeline,
-		router:     gin.Default(),
+		authSvc:      authSvc,
+		logRepo:      logRepo,
+		jwtSvc:       jwtSvc,
+		gitFactory:   factory,
+		pipeline:     pipeline,
+		sessionStore: sessionStore,
+		limiter:      limiter,
+		router:       gin.Default(),
 	}
 	s.registerRoutes()
 	return s
@@ -54,15 +64,31 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) registerRoutes() {
+	// Health check — no rate limit.
 	s.router.GET("/healthz", s.handleHealthz)
-	s.router.POST("/api/auth/register", s.handleRegister)
-	s.router.POST("/api/auth/login", s.handleLogin)
-	s.router.DELETE("/api/auth/logout", requireAuth(s.jwtSvc), s.handleLogout)
-	s.router.POST("/api/review", requireAuth(s.jwtSvc), s.handleReview)
-	s.router.GET("/api/reviews", requireAuth(s.jwtSvc), s.handleListReviews)
+
+	// Auth routes: strict IP-based rate limiting (5 req / 15 min), fail-closed.
+	authGroup := s.router.Group("/api/auth")
+	authGroup.Use(rateLimitAuth(s.limiter))
+	{
+		authGroup.POST("/register", s.handleRegister)
+		authGroup.POST("/login", s.handleLogin)
+	}
+
+	// Authenticated routes: JWT validation first, then general API rate limiting
+	// (100 req / min, UserID-based), fail-open.
+	protected := s.router.Group("/api")
+	protected.Use(requireAuth(s.jwtSvc), rateLimitAPI(s.limiter))
+	{
+		protected.DELETE("/auth/logout", s.handleLogout)
+		protected.POST("/review", s.handleReview)
+		protected.GET("/reviews", s.handleListReviews)
+		protected.GET("/projects", s.handleListProjects)
+		protected.PUT("/project", s.handleUpdateProject)
+	}
 }
 
-// --- Handlers ---
+// ─── Handlers ────────────────────────────────────────────────────────────────
 
 func (s *Server) handleHealthz(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -97,80 +123,125 @@ func (s *Server) handleLogin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
 		return
 	}
-
 	if body.Username == "" || body.Password == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "username and password are required"})
 		return
 	}
 
-	if err := s.authSvc.Login(body.Username, body.Password); err != nil {
+	loginUser, err := s.authSvc.Login(body.Username, body.Password)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	gitlabUserID, err := s.authSvc.GetGitlabUserID(body.Username)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve user info"})
-		return
-	}
+	userID := int64(loginUser.ID)
 
-	jwt, err := s.jwtSvc.Sign(strconv.Itoa(gitlabUserID), body.Username)
+	jwtToken, err := s.jwtSvc.Sign(userID, loginUser.Username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate session token"})
 		return
 	}
 
+	// Warm the session cache: fetch plaintext token + webUrl + projectID from Postgres,
+	// then store them encrypted in Redis aligned to the JWT TTL.
+	if s.sessionStore != nil {
+		rawToken, errT := s.authSvc.GetToken(userID)
+		rawWebUrl, errW := s.authSvc.GetWebUrl(userID)
+		projectID, _ := s.authSvc.GetProjectID(userID)
+		if errT == nil && errW == nil {
+			ttl := s.jwtSvc.ExpiryDuration()
+			if ttl <= 0 {
+				ttl = 24 * time.Hour
+			}
+			_ = s.sessionStore.Set(c.Request.Context(), userID, loginUser.Username, projectID, rawToken, rawWebUrl, ttl)
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "login successful",
-		"token":   jwt,
+		"token":   jwtToken,
 	})
 }
 
 func (s *Server) handleLogout(c *gin.Context) {
-	userID := c.GetString("user_id")
-	if err := s.authSvc.Logout(userID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	userID := c.GetInt64("userID")
+
+	// Invalidate Redis session.
+	if s.sessionStore != nil {
+		_ = s.sessionStore.Invalidate(c.Request.Context(), userID)
 	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "logged out"})
 }
 
+// getTokenAndWebUrl fetches the user's token and webUrl, preferring the Redis
+// cache and falling back to Postgres transparently.
+func (s *Server) getTokenAndWebUrl(c *gin.Context, userID int64) (token, webUrl string, err error) {
+	// Try cache first.
+	if s.sessionStore != nil {
+		token, err = s.sessionStore.Token(c.Request.Context(), userID)
+		if err == nil && token != "" {
+			webUrl, err = s.sessionStore.WebUrl(c.Request.Context(), userID)
+			if err == nil && webUrl != "" {
+				return token, webUrl, nil
+			}
+		}
+	}
+	// Cache miss or error — fall back to Postgres.
+	token, err = s.authSvc.GetToken(userID)
+	if err != nil {
+		return "", "", fmt.Errorf("no GitLab token found — call /api/auth/login first")
+	}
+	webUrl, err = s.authSvc.GetWebUrl(userID)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to retrieve GitLab base URL: %w", err)
+	}
+	return token, webUrl, nil
+}
+
 func (s *Server) handleReview(c *gin.Context) {
-	userID := c.GetString("user_id")
+	userID := c.GetInt64("userID")
 
 	var body struct {
-		MRID      int    `json:"mr_id"`
-		ProjectID string `json:"project_id"`
+		MRID      int   `json:"mr_id"`
+		ProjectID int64 `json:"project_id"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
 		return
 	}
-	if body.MRID == 0 || body.ProjectID == "" {
+
+	// Fallback to cached ProjectID if not provided in body.
+	if body.ProjectID <= 0 && s.sessionStore != nil {
+		if cachedID, _ := s.sessionStore.ProjectID(c.Request.Context(), userID); cachedID > 0 {
+			body.ProjectID = cachedID
+		}
+	}
+	// Final fallback to Postgres if still empty.
+	if body.ProjectID <= 0 {
+		if dbID, _ := s.authSvc.GetProjectID(userID); dbID > 0 {
+			body.ProjectID = dbID
+		}
+	}
+
+	if body.MRID == 0 || body.ProjectID <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "mr_id and project_id are required"})
 		return
 	}
 
-	token, err := s.authSvc.GetToken(userID)
+	token, webUrl, err := s.getTokenAndWebUrl(c, userID)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "no GitLab token found — call /api/auth/login first"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 
-	webUrl, err := s.authSvc.GetWebUrl(userID)
-	if err != nil {
-		// Fallback to error or default? The user registered with a webUrl, so we should use it.
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve GitLab base URL"})
-		return
-	}
-
-	provider, err := s.gitFactory(webUrl, token)
+	provider, err := s.gitFactory(webUrl, token, body.ProjectID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to build git provider: %v", err)})
 		return
 	}
 
-	reviewer := agent.New(provider, s.logRepo, body.ProjectID, s.pipeline)
+	reviewer := agent.New(provider, s.logRepo, strconv.FormatInt(body.ProjectID, 10), s.pipeline)
 	if err := reviewer.Review(c.Request.Context(), userID, body.MRID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -182,13 +253,63 @@ func (s *Server) handleReview(c *gin.Context) {
 }
 
 func (s *Server) handleListReviews(c *gin.Context) {
-	userID := c.GetString("user_id")
+	userID := c.GetInt64("userID")
 
 	logs, err := s.logRepo.ListReviews(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"reviews": logs})
+}
+
+func (s *Server) handleListProjects(c *gin.Context) {
+	userID := c.GetInt64("userID")
+
+	token, webUrl, err := s.getTokenAndWebUrl(c, userID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	provider, err := s.gitFactory(webUrl, token, 0)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to build git provider: %v", err)})
+		return
+	}
+
+	projects, err := provider.ListProjects()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"projects": projects})
+}
+
+func (s *Server) handleUpdateProject(c *gin.Context) {
+	userID := c.GetInt64("userID")
+
+	var body struct {
+		ProjectID int64 `json:"project_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
+		return
+	}
+	if body.ProjectID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "project_id is required and must be positive"})
+		return
+	}
+
+	if err := s.authSvc.UpdateProjectID(userID, body.ProjectID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Partial session update in Redis.
+	if s.sessionStore != nil {
+		_ = s.sessionStore.UpdateProjectID(c.Request.Context(), userID, body.ProjectID)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "project_id updated successfully"})
 }

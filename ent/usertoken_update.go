@@ -63,6 +63,33 @@ func (_u *UserTokenUpdate) ClearWebURL() *UserTokenUpdate {
 	return _u
 }
 
+// SetProjectID sets the "project_id" field.
+func (_u *UserTokenUpdate) SetProjectID(v int64) *UserTokenUpdate {
+	_u.mutation.ResetProjectID()
+	_u.mutation.SetProjectID(v)
+	return _u
+}
+
+// SetNillableProjectID sets the "project_id" field if the given value is not nil.
+func (_u *UserTokenUpdate) SetNillableProjectID(v *int64) *UserTokenUpdate {
+	if v != nil {
+		_u.SetProjectID(*v)
+	}
+	return _u
+}
+
+// AddProjectID adds value to the "project_id" field.
+func (_u *UserTokenUpdate) AddProjectID(v int64) *UserTokenUpdate {
+	_u.mutation.AddProjectID(v)
+	return _u
+}
+
+// ClearProjectID clears the value of the "project_id" field.
+func (_u *UserTokenUpdate) ClearProjectID() *UserTokenUpdate {
+	_u.mutation.ClearProjectID()
+	return _u
+}
+
 // SetUpdatedAt sets the "updated_at" field.
 func (_u *UserTokenUpdate) SetUpdatedAt(v time.Time) *UserTokenUpdate {
 	_u.mutation.SetUpdatedAt(v)
@@ -156,6 +183,15 @@ func (_u *UserTokenUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.WebURLCleared() {
 		_spec.ClearField(usertoken.FieldWebURL, field.TypeString)
 	}
+	if value, ok := _u.mutation.ProjectID(); ok {
+		_spec.SetField(usertoken.FieldProjectID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedProjectID(); ok {
+		_spec.AddField(usertoken.FieldProjectID, field.TypeInt64, value)
+	}
+	if _u.mutation.ProjectIDCleared() {
+		_spec.ClearField(usertoken.FieldProjectID, field.TypeInt64)
+	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(usertoken.FieldUpdatedAt, field.TypeTime, value)
 	}
@@ -239,6 +275,33 @@ func (_u *UserTokenUpdateOne) SetNillableWebURL(v *string) *UserTokenUpdateOne {
 // ClearWebURL clears the value of the "web_url" field.
 func (_u *UserTokenUpdateOne) ClearWebURL() *UserTokenUpdateOne {
 	_u.mutation.ClearWebURL()
+	return _u
+}
+
+// SetProjectID sets the "project_id" field.
+func (_u *UserTokenUpdateOne) SetProjectID(v int64) *UserTokenUpdateOne {
+	_u.mutation.ResetProjectID()
+	_u.mutation.SetProjectID(v)
+	return _u
+}
+
+// SetNillableProjectID sets the "project_id" field if the given value is not nil.
+func (_u *UserTokenUpdateOne) SetNillableProjectID(v *int64) *UserTokenUpdateOne {
+	if v != nil {
+		_u.SetProjectID(*v)
+	}
+	return _u
+}
+
+// AddProjectID adds value to the "project_id" field.
+func (_u *UserTokenUpdateOne) AddProjectID(v int64) *UserTokenUpdateOne {
+	_u.mutation.AddProjectID(v)
+	return _u
+}
+
+// ClearProjectID clears the value of the "project_id" field.
+func (_u *UserTokenUpdateOne) ClearProjectID() *UserTokenUpdateOne {
+	_u.mutation.ClearProjectID()
 	return _u
 }
 
@@ -364,6 +427,15 @@ func (_u *UserTokenUpdateOne) sqlSave(ctx context.Context) (_node *UserToken, er
 	}
 	if _u.mutation.WebURLCleared() {
 		_spec.ClearField(usertoken.FieldWebURL, field.TypeString)
+	}
+	if value, ok := _u.mutation.ProjectID(); ok {
+		_spec.SetField(usertoken.FieldProjectID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedProjectID(); ok {
+		_spec.AddField(usertoken.FieldProjectID, field.TypeInt64, value)
+	}
+	if _u.mutation.ProjectIDCleared() {
+		_spec.ClearField(usertoken.FieldProjectID, field.TypeInt64)
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(usertoken.FieldUpdatedAt, field.TypeTime, value)

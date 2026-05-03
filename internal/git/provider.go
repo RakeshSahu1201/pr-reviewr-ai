@@ -18,6 +18,15 @@ type GitProvider interface {
 	// FetchRecentEvents fetches recent user contribution events that occurred after sinceEventID.
 	// This acts as a polling alternative to webhooks.
 	FetchRecentEvents(sinceEventID int) ([]UserEvent, error)
+
+	// ListProjects returns a list of projects accessible by the authenticated user.
+	ListProjects() ([]Project, error)
+}
+
+// Project represents a generic git project/repository.
+type Project struct {
+	ID   int64
+	Name string
 }
 
 // UserEvent represents an activity event across any generic platform.

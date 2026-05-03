@@ -21,6 +21,9 @@ func (UserToken) Fields() []ent.Field {
 		field.String("web_url").
 			Optional().
 			Nillable(),
+		field.Int64("project_id").
+			Optional().
+			Nillable(),
 		field.Time("updated_at").
 			Default(time.Now).
 			UpdateDefault(time.Now),

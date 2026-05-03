@@ -22,6 +22,8 @@ type UserToken struct {
 	Token string `json:"token,omitempty"`
 	// WebURL holds the value of the "web_url" field.
 	WebURL *string `json:"web_url,omitempty"`
+	// ProjectID holds the value of the "project_id" field.
+	ProjectID *int64 `json:"project_id,omitempty"`
 	// UpdatedAt holds the value of the "updated_at" field.
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
@@ -56,7 +58,7 @@ func (*UserToken) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case usertoken.FieldID:
+		case usertoken.FieldID, usertoken.FieldProjectID:
 			values[i] = new(sql.NullInt64)
 		case usertoken.FieldToken, usertoken.FieldWebURL:
 			values[i] = new(sql.NullString)
@@ -97,6 +99,13 @@ func (_m *UserToken) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.WebURL = new(string)
 				*_m.WebURL = value.String
+			}
+		case usertoken.FieldProjectID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field project_id", values[i])
+			} else if value.Valid {
+				_m.ProjectID = new(int64)
+				*_m.ProjectID = value.Int64
 			}
 		case usertoken.FieldUpdatedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -158,6 +167,11 @@ func (_m *UserToken) String() string {
 	if v := _m.WebURL; v != nil {
 		builder.WriteString("web_url=")
 		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.ProjectID; v != nil {
+		builder.WriteString("project_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteString(", ")
 	builder.WriteString("updated_at=")

@@ -4,35 +4,39 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
 
+	"entgo.io/ent/dialect"
+	entsql "entgo.io/ent/dialect/sql"
+	"github.com/redis/go-redis/v9"
+	_ "github.com/jackc/pgx/v5/stdlib" // pgx driver for database/sql
+
 	"pr-reviewer-ai/ent"
 	"pr-reviewer-ai/internal/auth"
+	"pr-reviewer-ai/internal/cache"
 	"pr-reviewer-ai/internal/config"
 	appCrypto "pr-reviewer-ai/internal/crypto"
 	"pr-reviewer-ai/internal/git"
 	"pr-reviewer-ai/internal/llm"
 	pgRepo "pr-reviewer-ai/internal/repository/postgres"
+	"pr-reviewer-ai/internal/ratelimit"
 	"pr-reviewer-ai/internal/server"
-	"database/sql"
-
-	"entgo.io/ent/dialect"
-	entsql "entgo.io/ent/dialect/sql"
-	_ "github.com/jackc/pgx/v5/stdlib" // pgx driver for database/sql
 )
 
 // App holds the fully wired application and exposes a single Run method.
 type App struct {
 	cfg    *config.Config
 	db     *ent.Client
+	rdb    *redis.Client
 	server *server.Server
 }
 
-// Build connects to Postgres (via ent) and wires all dependencies.
+// Build connects to Postgres (via ent) and Redis, then wires all dependencies.
 func Build(cfg *config.Config) (*App, error) {
-	// --- Ent client (uses database/sql under the hood via pgx driver) ---
+	// ─── Ent / Postgres client ────────────────────────────────────────────────
 	sqlDB, err := sql.Open("pgx", cfg.DatabaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("app: failed to open sql db: %w", err)
@@ -40,37 +44,54 @@ func Build(cfg *config.Config) (*App, error) {
 	drv := entsql.OpenDB(dialect.Postgres, sqlDB)
 	db := ent.NewClient(ent.Driver(drv))
 
-	// Verify connectivity.
 	if err := db.Schema.Create(context.Background()); err != nil {
-		// We don't run auto-migrations; if schema tables are missing it'll fail here
-		// with a clear error. Existing tables are left untouched.
 		log.Printf("⚠ ent schema check: %v (continuing — managed by SQL migrations)", err)
 	}
 
-	// --- Repository layer ---
+	// ─── Redis client ─────────────────────────────────────────────────────────
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     cfg.RedisAddr,
+		Password: cfg.RedisPassword,
+		DB:       cfg.RedisDB,
+	})
+
+	// Verify connectivity — non-fatal: the app can still serve requests from Postgres.
+	if err := rdb.Ping(context.Background()).Err(); err != nil {
+		log.Printf("⚠ Redis unreachable at %s: %v — caching and rate limiting degraded", cfg.RedisAddr, err)
+	} else {
+		log.Printf("✓ Redis connected at %s (db %d)", cfg.RedisAddr, cfg.RedisDB)
+	}
+
+	// ─── Repository layer ─────────────────────────────────────────────────────
 	tokenRepo := pgRepo.NewTokenRepo(db)
 	logRepo := pgRepo.NewReviewLogRepo(db)
 
-	// --- Crypto ---
+	// ─── Crypto helpers ───────────────────────────────────────────────────────
 	encryptFn := func(plain string) (string, error) { return appCrypto.Encrypt(cfg.EncryptionKey, plain) }
 	decryptFn := func(enc string) (string, error) { return appCrypto.Decrypt(cfg.EncryptionKey, enc) }
 
-	// --- Auth service ---
+	// ─── Auth service ─────────────────────────────────────────────────────────
 	authSvc := auth.NewAuthService(tokenRepo, encryptFn, decryptFn)
 
-	// --- JWT service ---
+	// ─── JWT service ──────────────────────────────────────────────────────────
 	jwtSvc := server.NewJWTService(cfg.JWTSecret, cfg.JWTExpiryHours)
 
-	// --- LLM pipeline ---
+	// ─── Redis-backed session store ───────────────────────────────────────────
+	sessionStore := cache.NewSessionStore(rdb, encryptFn, decryptFn)
+
+	// ─── Sliding-window rate limiter ──────────────────────────────────────────
+	limiter := ratelimit.New(rdb)
+
+	// ─── LLM pipeline ─────────────────────────────────────────────────────────
 	pipeline := buildLLMPipeline(cfg)
 
-	// --- GitProvider factory ---
+	// ─── GitProvider factory ──────────────────────────────────────────────────
 	gitFactory := buildGitFactory(cfg)
 
-	// --- HTTP server ---
-	srv := server.New(authSvc, logRepo, jwtSvc, gitFactory, pipeline)
+	// ─── HTTP server ──────────────────────────────────────────────────────────
+	srv := server.New(authSvc, logRepo, jwtSvc, gitFactory, pipeline, sessionStore, limiter)
 
-	return &App{cfg: cfg, db: db, server: srv}, nil
+	return &App{cfg: cfg, db: db, rdb: rdb, server: srv}, nil
 }
 
 // Run starts the HTTP server and blocks until it exits.
@@ -78,8 +99,13 @@ func (a *App) Run() error {
 	return http.ListenAndServe(":"+a.cfg.Port, a.server)
 }
 
-// Close releases the ent client / database connection pool.
-func (a *App) Close() { a.db.Close() }
+// Close releases the ent client / database connection pool and the Redis client.
+func (a *App) Close() {
+	a.db.Close()
+	if a.rdb != nil {
+		_ = a.rdb.Close()
+	}
+}
 
 // buildLLMPipeline constructs the LLM pipeline from config.
 func buildLLMPipeline(cfg *config.Config) *llm.Pipeline {
@@ -122,14 +148,13 @@ func buildLLMPipeline(cfg *config.Config) *llm.Pipeline {
 
 // buildGitFactory returns a per-request GitProvider factory.
 func buildGitFactory(cfg *config.Config) server.GitProviderFactory {
-	return func(webUrl, token string) (git.GitProvider, error) {
-		if cfg.GitLabProject == "" {
-			return nil, fmt.Errorf("GITLAB_PROJECT_ID is not set")
+	return func(webUrl, token string, projectID int64) (git.GitProvider, error) {
+		if projectID <= 0 {
+			projectID = cfg.GitLabProject
 		}
-		// If webUrl is empty (should not happen with new auth), fallback to config.
 		if webUrl == "" {
 			webUrl = cfg.GitLabBaseURL
 		}
-		return git.NewGitLabProvider(webUrl, token, cfg.GitLabProject)
+		return git.NewGitLabProvider(webUrl, token, projectID)
 	}
 }

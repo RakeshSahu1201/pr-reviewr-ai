@@ -65,6 +65,11 @@ func WebURL(v string) predicate.UserToken {
 	return predicate.UserToken(sql.FieldEQ(FieldWebURL, v))
 }
 
+// ProjectID applies equality check predicate on the "project_id" field. It's identical to ProjectIDEQ.
+func ProjectID(v int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldEQ(FieldProjectID, v))
+}
+
 // UpdatedAt applies equality check predicate on the "updated_at" field. It's identical to UpdatedAtEQ.
 func UpdatedAt(v time.Time) predicate.UserToken {
 	return predicate.UserToken(sql.FieldEQ(FieldUpdatedAt, v))
@@ -208,6 +213,56 @@ func WebURLEqualFold(v string) predicate.UserToken {
 // WebURLContainsFold applies the ContainsFold predicate on the "web_url" field.
 func WebURLContainsFold(v string) predicate.UserToken {
 	return predicate.UserToken(sql.FieldContainsFold(FieldWebURL, v))
+}
+
+// ProjectIDEQ applies the EQ predicate on the "project_id" field.
+func ProjectIDEQ(v int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldEQ(FieldProjectID, v))
+}
+
+// ProjectIDNEQ applies the NEQ predicate on the "project_id" field.
+func ProjectIDNEQ(v int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldNEQ(FieldProjectID, v))
+}
+
+// ProjectIDIn applies the In predicate on the "project_id" field.
+func ProjectIDIn(vs ...int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldIn(FieldProjectID, vs...))
+}
+
+// ProjectIDNotIn applies the NotIn predicate on the "project_id" field.
+func ProjectIDNotIn(vs ...int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldNotIn(FieldProjectID, vs...))
+}
+
+// ProjectIDGT applies the GT predicate on the "project_id" field.
+func ProjectIDGT(v int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldGT(FieldProjectID, v))
+}
+
+// ProjectIDGTE applies the GTE predicate on the "project_id" field.
+func ProjectIDGTE(v int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldGTE(FieldProjectID, v))
+}
+
+// ProjectIDLT applies the LT predicate on the "project_id" field.
+func ProjectIDLT(v int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldLT(FieldProjectID, v))
+}
+
+// ProjectIDLTE applies the LTE predicate on the "project_id" field.
+func ProjectIDLTE(v int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldLTE(FieldProjectID, v))
+}
+
+// ProjectIDIsNil applies the IsNil predicate on the "project_id" field.
+func ProjectIDIsNil() predicate.UserToken {
+	return predicate.UserToken(sql.FieldIsNull(FieldProjectID))
+}
+
+// ProjectIDNotNil applies the NotNil predicate on the "project_id" field.
+func ProjectIDNotNil() predicate.UserToken {
+	return predicate.UserToken(sql.FieldNotNull(FieldProjectID))
 }
 
 // UpdatedAtEQ applies the EQ predicate on the "updated_at" field.

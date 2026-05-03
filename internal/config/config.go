@@ -24,7 +24,7 @@ type Config struct {
 
 	// GitLab
 	GitLabBaseURL string
-	GitLabProject string // GITLAB_PROJECT_ID — may also be set per-request
+	GitLabProject int64 // GITLAB_PROJECT_ID — default project for all users
 
 	// LLM — legacy single-provider (kept for backward compat)
 	GeminiAPIKey string
@@ -44,6 +44,11 @@ type Config struct {
 	// LLM safety
 	LLMSanitize     bool     // if true, all prompts are redacted before sending
 	LLMCustomRedact []string // extra proprietary terms to strip
+
+	// Redis
+	RedisAddr     string // host:port, default localhost:6379
+	RedisPassword string // optional
+	RedisDB       int    // default 0
 
 	// Server
 	Port string
@@ -85,13 +90,15 @@ func Load() (*Config, error) {
 		providerOrder = []string{"gemini", "groq", "deepseek", "mistral", "cerebras"}
 	}
 
+	redisDB, _ := strconv.Atoi(getOrDefault("REDIS_DB", "0"))
+
 	return &Config{
 		DatabaseURL:    dbURL,
 		EncryptionKey:  encKey,
 		JWTSecret:      []byte(jwtSecretStr),
 		JWTExpiryHours: jwtExpiryHours,
 		GitLabBaseURL:  getOrDefault("GITLAB_BASE_URL", "https://gitlab.com"),
-		GitLabProject:  os.Getenv("GITLAB_PROJECT_ID"),
+		GitLabProject:  parseGitlabProjectID(os.Getenv("GITLAB_PROJECT_ID")),
 		Port:           getOrDefault("PORT", "8080"),
 		// Legacy single-provider
 		GeminiAPIKey: os.Getenv("GEMINI_API_KEY"),
@@ -104,6 +111,10 @@ func Load() (*Config, error) {
 		CerebrasAPIKey:   os.Getenv("CEREBRAS_API_KEY"),
 		LLMSanitize:      os.Getenv("LLM_SANITIZE") != "false", // enabled by default
 		LLMCustomRedact:  splitCSV(os.Getenv("LLM_CUSTOM_REDACT")),
+		// Redis
+		RedisAddr:     getOrDefault("REDIS_ADDR", "localhost:6379"),
+		RedisPassword: os.Getenv("REDIS_PASSWORD"),
+		RedisDB:       redisDB,
 	}, nil
 }
 
@@ -135,4 +146,12 @@ func getOrDefault(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func parseGitlabProjectID(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	id, _ := strconv.ParseInt(s, 10, 64)
+	return id
 }

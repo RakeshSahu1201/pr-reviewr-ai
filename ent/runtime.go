@@ -33,7 +33,7 @@ func init() {
 	usertokenFields := schema.UserToken{}.Fields()
 	_ = usertokenFields
 	// usertokenDescUpdatedAt is the schema descriptor for updated_at field.
-	usertokenDescUpdatedAt := usertokenFields[2].Descriptor()
+	usertokenDescUpdatedAt := usertokenFields[3].Descriptor()
 	// usertoken.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	usertoken.DefaultUpdatedAt = usertokenDescUpdatedAt.Default.(func() time.Time)
 	// usertoken.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.

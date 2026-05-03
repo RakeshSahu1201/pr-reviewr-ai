@@ -42,7 +42,7 @@ func New(
 //  2. Analyse the diff (LLM pipeline or stub)
 //  3. Post the generated review via GitProvider.PostReview
 //  4. Log the review for audit (if logRepo is set)
-func (r *Reviewer) Review(ctx context.Context, userID string, mrID int) error {
+func (r *Reviewer) Review(ctx context.Context, userID int64, mrID int) error {
 	diff, err := r.provider.FetchDiff(mrID)
 	if err != nil {
 		return fmt.Errorf("agent: could not fetch diff for MR %d: %w", mrID, err)

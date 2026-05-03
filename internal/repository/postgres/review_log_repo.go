@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"pr-reviewer-ai/ent"
 	"pr-reviewer-ai/ent/reviewlog"
@@ -22,23 +21,12 @@ func NewReviewLogRepo(client *ent.Client) *ReviewLogRepo {
 }
 
 // LogReview inserts a new review audit record.
-func (r *ReviewLogRepo) LogReview(userID string, mrID int, projectID, comment string) error {
-	gid, err := strconv.Atoi(userID)
-	if err != nil {
-		return fmt.Errorf("repository: invalid user id: %s", userID)
-	}
-
+func (r *ReviewLogRepo) LogReview(userID int64, mrID int, projectID, comment string) error {
+	uid := int(userID)
 	ctx := context.Background()
-	u, err := r.client.User.Query().Where(user.GitlabUserIDEQ(gid)).Only(ctx)
-	if ent.IsNotFound(err) {
-		return fmt.Errorf("repository: user not found with gitlab id: %d", gid)
-	}
-	if err != nil {
-		return fmt.Errorf("repository: get user: %w", err)
-	}
 
-	err = r.client.ReviewLog.Create().
-		SetOwner(u).
+	err := r.client.ReviewLog.Create().
+		SetOwnerID(uid).
 		SetMrID(mrID).
 		SetProjectID(projectID).
 		SetComment(comment).
@@ -50,15 +38,12 @@ func (r *ReviewLogRepo) LogReview(userID string, mrID int, projectID, comment st
 }
 
 // ListReviews returns all review logs for userID, newest first.
-func (r *ReviewLogRepo) ListReviews(userID string) ([]repository.ReviewLog, error) {
-	gid, err := strconv.Atoi(userID)
-	if err != nil {
-		return nil, fmt.Errorf("repository: invalid user id: %s", userID)
-	}
+func (r *ReviewLogRepo) ListReviews(userID int64) ([]repository.ReviewLog, error) {
+	uid := int(userID)
 
 	ctx := context.Background()
 	rows, err := r.client.ReviewLog.Query().
-		Where(reviewlog.HasOwnerWith(user.GitlabUserIDEQ(gid))).
+		Where(reviewlog.HasOwnerWith(user.IDEQ(uid))).
 		Order(ent.Desc(reviewlog.FieldReviewedAt)).
 		All(ctx)
 	if err != nil {

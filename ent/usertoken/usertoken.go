@@ -18,6 +18,8 @@ const (
 	FieldToken = "token"
 	// FieldWebURL holds the string denoting the web_url field in the database.
 	FieldWebURL = "web_url"
+	// FieldProjectID holds the string denoting the project_id field in the database.
+	FieldProjectID = "project_id"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
 	FieldUpdatedAt = "updated_at"
 	// EdgeOwner holds the string denoting the owner edge name in mutations.
@@ -38,6 +40,7 @@ var Columns = []string{
 	FieldID,
 	FieldToken,
 	FieldWebURL,
+	FieldProjectID,
 	FieldUpdatedAt,
 }
 
@@ -85,6 +88,11 @@ func ByToken(opts ...sql.OrderTermOption) OrderOption {
 // ByWebURL orders the results by the web_url field.
 func ByWebURL(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldWebURL, opts...).ToFunc()
+}
+
+// ByProjectID orders the results by the project_id field.
+func ByProjectID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldProjectID, opts...).ToFunc()
 }
 
 // ByUpdatedAt orders the results by the updated_at field.

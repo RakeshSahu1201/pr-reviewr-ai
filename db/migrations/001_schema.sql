@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS user_tokens (
     user_id         INT         NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
     token           TEXT        NOT NULL,
     web_url         TEXT,
+    project_id      BIGINT,
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

@@ -19,11 +19,45 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Use a shell so we can conditionally include --requirepass.
+    # Redis 7 exits with an error if --requirepass is given an empty string.
+    entrypoint: >
+      sh -c "
+        ARGS='--maxmemory 256mb --maxmemory-policy allkeys-lru --appendonly no';
+        if [ -n \"$$REDIS_PASSWORD\" ]; then
+          ARGS=\"$$ARGS --requirepass $$REDIS_PASSWORD\";
+        fi;
+        exec redis-server $$ARGS
+      "
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - |
+          if [ -n "$$REDIS_PASSWORD" ]; then
+            redis-cli -a "$$REDIS_PASSWORD" ping
+          else
+            redis-cli ping
+          fi
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   app:
     build: .
     restart: unless-stopped
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     environment:
       POSTGRES_HOST: db
@@ -36,11 +70,16 @@ services:
       JWT_EXPIRY_HOURS: ${JWT_EXPIRY_HOURS:-24}
       GITLAB_BASE_URL: ${GITLAB_BASE_URL:-https://gitlab.com}
       PORT: ${PORT:-8080}
+      # Redis
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: ${REDIS_DB:-0}
     ports:
       - "${PORT:-8080}:8080"
 
 volumes:
   pgdata:
+  redisdata:
 
 networks:
   nginx-proxy-network:
