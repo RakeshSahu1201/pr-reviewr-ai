@@ -70,6 +70,11 @@ func ProjectID(v int64) predicate.UserToken {
 	return predicate.UserToken(sql.FieldEQ(FieldProjectID, v))
 }
 
+// LastEventID applies equality check predicate on the "last_event_id" field. It's identical to LastEventIDEQ.
+func LastEventID(v int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldEQ(FieldLastEventID, v))
+}
+
 // UpdatedAt applies equality check predicate on the "updated_at" field. It's identical to UpdatedAtEQ.
 func UpdatedAt(v time.Time) predicate.UserToken {
 	return predicate.UserToken(sql.FieldEQ(FieldUpdatedAt, v))
@@ -263,6 +268,46 @@ func ProjectIDIsNil() predicate.UserToken {
 // ProjectIDNotNil applies the NotNil predicate on the "project_id" field.
 func ProjectIDNotNil() predicate.UserToken {
 	return predicate.UserToken(sql.FieldNotNull(FieldProjectID))
+}
+
+// LastEventIDEQ applies the EQ predicate on the "last_event_id" field.
+func LastEventIDEQ(v int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldEQ(FieldLastEventID, v))
+}
+
+// LastEventIDNEQ applies the NEQ predicate on the "last_event_id" field.
+func LastEventIDNEQ(v int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldNEQ(FieldLastEventID, v))
+}
+
+// LastEventIDIn applies the In predicate on the "last_event_id" field.
+func LastEventIDIn(vs ...int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldIn(FieldLastEventID, vs...))
+}
+
+// LastEventIDNotIn applies the NotIn predicate on the "last_event_id" field.
+func LastEventIDNotIn(vs ...int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldNotIn(FieldLastEventID, vs...))
+}
+
+// LastEventIDGT applies the GT predicate on the "last_event_id" field.
+func LastEventIDGT(v int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldGT(FieldLastEventID, v))
+}
+
+// LastEventIDGTE applies the GTE predicate on the "last_event_id" field.
+func LastEventIDGTE(v int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldGTE(FieldLastEventID, v))
+}
+
+// LastEventIDLT applies the LT predicate on the "last_event_id" field.
+func LastEventIDLT(v int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldLT(FieldLastEventID, v))
+}
+
+// LastEventIDLTE applies the LTE predicate on the "last_event_id" field.
+func LastEventIDLTE(v int64) predicate.UserToken {
+	return predicate.UserToken(sql.FieldLTE(FieldLastEventID, v))
 }
 
 // UpdatedAtEQ applies the EQ predicate on the "updated_at" field.

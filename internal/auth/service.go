@@ -185,3 +185,41 @@ func (a *AuthService) GetProjectID(userID int64) (int64, error) {
 	}
 	return id, nil
 }
+
+type UserTokenInfo struct {
+	UserID      int64
+	Token       string
+	WebUrl      string
+	ProjectID   int64
+	LastEventID int64
+}
+
+// GetAllUserTokens retrieves all tokens and decrypts them.
+func (a *AuthService) GetAllUserTokens() ([]UserTokenInfo, error) {
+	infos, err := a.repo.GetAllTokens()
+	if err != nil {
+		return nil, fmt.Errorf("auth: %w", err)
+	}
+
+	var results []UserTokenInfo
+	for _, info := range infos {
+		tok, errT := a.decrypt(info.Token)
+		url, errU := a.decrypt(info.WebUrl)
+		if errT != nil || errU != nil {
+			continue // skip malformed
+		}
+		results = append(results, UserTokenInfo{
+			UserID:      info.UserID,
+			Token:       tok,
+			WebUrl:      url,
+			ProjectID:   info.ProjectID,
+			LastEventID: info.LastEventID,
+		})
+	}
+	return results, nil
+}
+
+// UpdateLastEventID updates the watermark in DB.
+func (a *AuthService) UpdateLastEventID(userID int64, eventID int64) error {
+	return a.repo.UpdateLastEventID(userID, eventID)
+}

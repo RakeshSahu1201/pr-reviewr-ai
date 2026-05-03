@@ -35,6 +35,20 @@ type TokenRepository interface {
 
 	// GetGitlabUserID retrieves the GitLab numeric user ID for the given username.
 	GetGitlabUserID(username string) (int, error)
+
+	// GetAllTokens retrieves all user tokens for the background worker.
+	GetAllTokens() ([]UserTokenInfo, error)
+
+	// UpdateLastEventID updates the last processed event ID for the user.
+	UpdateLastEventID(userID int64, eventID int64) error
+}
+
+type UserTokenInfo struct {
+	UserID      int64
+	Token       string
+	WebUrl      string
+	ProjectID   int64
+	LastEventID int64
 }
 
 // ReviewLog is a single audit record returned by ReviewLogRepository.

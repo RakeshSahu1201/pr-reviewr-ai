@@ -51,6 +51,7 @@ var (
 		{Name: "token", Type: field.TypeString},
 		{Name: "web_url", Type: field.TypeString, Nullable: true},
 		{Name: "project_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "last_event_id", Type: field.TypeInt64, Default: 0},
 		{Name: "updated_at", Type: field.TypeTime},
 		{Name: "user_id", Type: field.TypeInt, Unique: true},
 	}
@@ -62,7 +63,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "user_tokens_users_token",
-				Columns:    []*schema.Column{UserTokensColumns[5]},
+				Columns:    []*schema.Column{UserTokensColumns[6]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},

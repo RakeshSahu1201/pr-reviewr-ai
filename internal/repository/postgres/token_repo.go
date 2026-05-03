@@ -10,6 +10,7 @@ import (
 	"pr-reviewer-ai/ent/user"
 	"pr-reviewer-ai/ent/usertoken"
 
+	"pr-reviewer-ai/internal/repository"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -197,6 +198,49 @@ func (r *TokenRepo) GetProjectID(userID int64) (int64, error) {
 		return 0, nil
 	}
 	return *tok.ProjectID, nil
+}
+
+// GetAllTokens retrieves all user tokens and their state for the background worker.
+func (r *TokenRepo) GetAllTokens() ([]repository.UserTokenInfo, error) {
+	tokens, err := r.client.UserToken.Query().WithOwner().All(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("repository: get all tokens: %w", err)
+	}
+
+	var results []repository.UserTokenInfo
+	for _, t := range tokens {
+		var pid int64
+		if t.ProjectID != nil {
+			pid = *t.ProjectID
+		}
+		var url string
+		if t.WebURL != nil {
+			url = *t.WebURL
+		}
+		results = append(results, repository.UserTokenInfo{
+			UserID:      int64(t.Edges.Owner.ID),
+			Token:       t.Token,
+			WebUrl:      url,
+			ProjectID:   pid,
+			LastEventID: t.LastEventID,
+		})
+	}
+	return results, nil
+}
+
+// UpdateLastEventID updates the last seen event ID for userID.
+func (r *TokenRepo) UpdateLastEventID(userID int64, eventID int64) error {
+	uid := int(userID)
+	ctx := context.Background()
+
+	err := r.client.UserToken.Update().
+		Where(usertoken.HasOwnerWith(user.IDEQ(uid))).
+		SetLastEventID(eventID).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("repository: update last event id: %w", err)
+	}
+	return nil
 }
 
 // GetGitlabUserID retrieves the stored GitLab numeric user ID for the given username.

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
@@ -15,14 +16,15 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib" // pgx driver for database/sql
 
 	"pr-reviewer-ai/ent"
+	"pr-reviewer-ai/internal/agent"
 	"pr-reviewer-ai/internal/auth"
 	"pr-reviewer-ai/internal/cache"
 	"pr-reviewer-ai/internal/config"
 	appCrypto "pr-reviewer-ai/internal/crypto"
 	"pr-reviewer-ai/internal/git"
 	"pr-reviewer-ai/internal/llm"
-	pgRepo "pr-reviewer-ai/internal/repository/postgres"
 	"pr-reviewer-ai/internal/ratelimit"
+	pgRepo "pr-reviewer-ai/internal/repository/postgres"
 	"pr-reviewer-ai/internal/server"
 )
 
@@ -32,6 +34,7 @@ type App struct {
 	db     *ent.Client
 	rdb    *redis.Client
 	server *server.Server
+	worker *agent.Worker
 }
 
 // Build connects to Postgres (via ent) and Redis, then wires all dependencies.
@@ -88,14 +91,22 @@ func Build(cfg *config.Config) (*App, error) {
 	// ─── GitProvider factory ──────────────────────────────────────────────────
 	gitFactory := buildGitFactory(cfg)
 
+	// ─── Background worker ────────────────────────────────────────────────────
+	worker := agent.NewWorker(authSvc, logRepo, gitFactory, pipeline)
+
 	// ─── HTTP server ──────────────────────────────────────────────────────────
 	srv := server.New(authSvc, logRepo, jwtSvc, gitFactory, pipeline, sessionStore, limiter)
 
-	return &App{cfg: cfg, db: db, rdb: rdb, server: srv}, nil
+	return &App{cfg: cfg, db: db, rdb: rdb, server: srv, worker: worker}, nil
 }
 
 // Run starts the HTTP server and blocks until it exits.
 func (a *App) Run() error {
+	// Start background worker.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go a.worker.Start(ctx, 1*time.Minute)
+
 	return http.ListenAndServe(":"+a.cfg.Port, a.server)
 }
 
