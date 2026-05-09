@@ -14,7 +14,7 @@ RUN go mod download
 
 # Copy source and build a fully static binary
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+RUN CGO_ENABLED=0 GOOS=linux \
     go build -ldflags="-w -s" -o /app/pr-reviewer-ai .
 
 # ────────────────────────────────────────────────
