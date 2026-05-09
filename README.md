@@ -44,6 +44,22 @@ docker-compose up --build
 ```
 The API will be available at `http://localhost:8080`.
 
+### 4. Interactive CLI Testing
+We provide interactive shell scripts to simplify account setup and project configuration.
+
+**Step 1: Register your account**
+```bash
+chmod +x register_setup.sh
+./register_setup.sh
+```
+
+**Step 2: Log in and Select Project**
+```bash
+chmod +x setup.sh
+./setup.sh
+```
+Follow the on-screen prompts to complete the workflow.
+
 ---
 
 ## API Workflow

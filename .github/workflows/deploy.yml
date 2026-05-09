@@ -84,8 +84,8 @@ jobs:
             echo "ENCRYPTION_KEY=$ENCRYPTION_KEY" >> .env
             echo "JWT_SECRET=$JWT_SECRET" >> .env
             
-            docker-compose pull
-            docker-compose up -d
+            docker compose pull
+            docker compose up -d
 
   # ----------------------------------------
   # THE CLOUD SERVER DEPLOYMENT (SSH / PUSH)
