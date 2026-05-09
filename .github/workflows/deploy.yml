@@ -54,24 +54,28 @@ jobs:
           username: ${{ secrets.PI_SERVER_USER }}
           key: ${{ secrets.PI_SERVER_SSH_KEY }}
           port: ${{ secrets.PI_SERVER_PORT }}  # Using your custom SSH port
-          source: "docker-compose.yml"
+          source: "docker-compose.prod.yml"
           target: "/opt/myproject"
           
       # 2. Execute commands over SSH
       - name: Execute deployment on Pi
         uses: appleboy/ssh-action@v1.0.0
-        # env:
-        #   DB_USER: ${{ secrets.DB_USER }}
-        #   DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-        #   DB_HOST: ${{ secrets.DB_HOST }}
-        #   GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
-        #   API_KEY: ${{ secrets.API_KEY }}
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          API_KEY: ${{ secrets.API_KEY }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          JWT_EXPIRY_HOURS: ${{ secrets.JWT_EXPIRY_HOURS }}
         with:
           host: ${{ secrets.PI_SERVER_IP }}
           username: ${{ secrets.PI_SERVER_USER }}
           key: ${{ secrets.PI_SERVER_SSH_KEY }}
           port: ${{ secrets.PI_SERVER_PORT }}  # Using your custom SSH port
-          envs: DB_USER,DB_PASSWORD,DB_HOST,ENCRYPTION_KEY,JWT_SECRET 
+          envs: DB_USER,DB_PASSWORD,DB_HOST,ENCRYPTION_KEY,JWT_SECRET,DOCKER_USERNAME,JWT_EXPIRY_HOURS 
           script: |
             # Ensure folder exists, then enter it
             mkdir -p /opt/myproject
@@ -83,9 +87,11 @@ jobs:
             echo "DB_HOST=$DB_HOST" >> .env
             echo "ENCRYPTION_KEY=$ENCRYPTION_KEY" >> .env
             echo "JWT_SECRET=$JWT_SECRET" >> .env
+            echo "DOCKER_USERNAME=$DOCKER_USERNAME" >> .env
+            echo "JWT_EXPIRY_HOURS=$JWT_EXPIRY_HOURS" >> .env
             
-            docker compose pull
-            docker compose up -d
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d
 
   # ----------------------------------------
   # THE CLOUD SERVER DEPLOYMENT (SSH / PUSH)

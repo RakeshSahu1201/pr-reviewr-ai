@@ -1,0 +1,62 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-pr_reviewer}
+      POSTGRES_USER: ${POSTGRES_USER:-mr_reviewer_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pr_reviewer}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/migrations/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    # No need to expose port 5432 to the Pi host, the Go app can reach it internally!
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    entrypoint: >
+      sh -c "
+        ARGS='--maxmemory 256mb --maxmemory-policy allkeys-lru --appendonly no';
+        if [ -n \"$$REDIS_PASSWORD\" ]; then
+          ARGS=\"$$ARGS --requirepass $$REDIS_PASSWORD\";
+        fi;
+        exec redis-server $$ARGS
+      "
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    volumes:
+      - redisdata:/data
+
+  app:
+    # 1. NO BUILD COMMAND HERE
+    # 2. Add your Docker Hub image instead (Update with your exact username)
+    image: ${DOCKER_USERNAME}/pr-reviewer-ai:latest 
+    restart: unless-stopped
+    depends_on:
+      - db
+      - redis
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-pr_reviewer}
+      POSTGRES_USER: ${POSTGRES_USER:-mr_reviewer_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pr_reviewer}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRY_HOURS: ${JWT_EXPIRY_HOURS:-24}
+      PORT: ${PORT:-8080}
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: ${REDIS_DB:-0}
+    # 3. Attach to the Nginx Proxy Network AND the default network
+    networks:
+      - nginx-proxy-network
+      - default
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  nginx-proxy-network:
+    external: true
