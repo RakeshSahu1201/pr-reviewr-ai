@@ -20,8 +20,6 @@ const (
 	FieldWebURL = "web_url"
 	// FieldProjectID holds the string denoting the project_id field in the database.
 	FieldProjectID = "project_id"
-	// FieldLastEventID holds the string denoting the last_event_id field in the database.
-	FieldLastEventID = "last_event_id"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
 	FieldUpdatedAt = "updated_at"
 	// EdgeOwner holds the string denoting the owner edge name in mutations.
@@ -43,7 +41,6 @@ var Columns = []string{
 	FieldToken,
 	FieldWebURL,
 	FieldProjectID,
-	FieldLastEventID,
 	FieldUpdatedAt,
 }
 
@@ -69,8 +66,6 @@ func ValidColumn(column string) bool {
 }
 
 var (
-	// DefaultLastEventID holds the default value on creation for the "last_event_id" field.
-	DefaultLastEventID int64
 	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
 	DefaultUpdatedAt func() time.Time
 	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
@@ -98,11 +93,6 @@ func ByWebURL(opts ...sql.OrderTermOption) OrderOption {
 // ByProjectID orders the results by the project_id field.
 func ByProjectID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldProjectID, opts...).ToFunc()
-}
-
-// ByLastEventID orders the results by the last_event_id field.
-func ByLastEventID(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldLastEventID, opts...).ToFunc()
 }
 
 // ByUpdatedAt orders the results by the updated_at field.

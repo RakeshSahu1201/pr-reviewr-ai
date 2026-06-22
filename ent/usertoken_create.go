@@ -55,20 +55,6 @@ func (_c *UserTokenCreate) SetNillableProjectID(v *int64) *UserTokenCreate {
 	return _c
 }
 
-// SetLastEventID sets the "last_event_id" field.
-func (_c *UserTokenCreate) SetLastEventID(v int64) *UserTokenCreate {
-	_c.mutation.SetLastEventID(v)
-	return _c
-}
-
-// SetNillableLastEventID sets the "last_event_id" field if the given value is not nil.
-func (_c *UserTokenCreate) SetNillableLastEventID(v *int64) *UserTokenCreate {
-	if v != nil {
-		_c.SetLastEventID(*v)
-	}
-	return _c
-}
-
 // SetUpdatedAt sets the "updated_at" field.
 func (_c *UserTokenCreate) SetUpdatedAt(v time.Time) *UserTokenCreate {
 	_c.mutation.SetUpdatedAt(v)
@@ -129,10 +115,6 @@ func (_c *UserTokenCreate) ExecX(ctx context.Context) {
 
 // defaults sets the default values of the builder before save.
 func (_c *UserTokenCreate) defaults() {
-	if _, ok := _c.mutation.LastEventID(); !ok {
-		v := usertoken.DefaultLastEventID
-		_c.mutation.SetLastEventID(v)
-	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		v := usertoken.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
@@ -143,9 +125,6 @@ func (_c *UserTokenCreate) defaults() {
 func (_c *UserTokenCreate) check() error {
 	if _, ok := _c.mutation.Token(); !ok {
 		return &ValidationError{Name: "token", err: errors.New(`ent: missing required field "UserToken.token"`)}
-	}
-	if _, ok := _c.mutation.LastEventID(); !ok {
-		return &ValidationError{Name: "last_event_id", err: errors.New(`ent: missing required field "UserToken.last_event_id"`)}
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "UserToken.updated_at"`)}
@@ -190,10 +169,6 @@ func (_c *UserTokenCreate) createSpec() (*UserToken, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.ProjectID(); ok {
 		_spec.SetField(usertoken.FieldProjectID, field.TypeInt64, value)
 		_node.ProjectID = &value
-	}
-	if value, ok := _c.mutation.LastEventID(); ok {
-		_spec.SetField(usertoken.FieldLastEventID, field.TypeInt64, value)
-		_node.LastEventID = value
 	}
 	if value, ok := _c.mutation.UpdatedAt(); ok {
 		_spec.SetField(usertoken.FieldUpdatedAt, field.TypeTime, value)

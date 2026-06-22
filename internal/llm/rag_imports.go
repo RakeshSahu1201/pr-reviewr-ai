@@ -107,6 +107,258 @@ func BuildContextWithImports(
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Five-optimisation pipeline entry point (used by Pipeline.Run)
+// ────────────────────────────────────────────────────────────────────────────
+
+// ParseDiffFiles parses a unified diff and returns a map of
+// filePath → concatenated addition lines (+). Only added code is extracted
+// because that is the code the LLM needs to analyse for imports.
+func ParseDiffFiles(diff string) map[string]string {
+	files := make(map[string]string)
+	var currentFile string
+	var sb strings.Builder
+
+	for _, line := range strings.Split(diff, "\n") {
+		switch {
+		case strings.HasPrefix(line, "+++ b/"):
+			// Flush previous file.
+			if currentFile != "" && sb.Len() > 0 {
+				files[currentFile] = sb.String()
+				sb.Reset()
+			}
+			currentFile = strings.TrimPrefix(line, "+++ b/")
+		case currentFile != "" &&
+			strings.HasPrefix(line, "+") &&
+			!strings.HasPrefix(line, "+++"):
+			// Collect added lines (strip the leading '+').
+			sb.WriteString(strings.TrimPrefix(line, "+"))
+			sb.WriteString("\n")
+		}
+	}
+	if currentFile != "" && sb.Len() > 0 {
+		files[currentFile] = sb.String()
+	}
+	return files
+}
+
+// truncateImportPath reduces a deep module path to its base module root
+// (at most 3 slash-separated segments, e.g. "github.com/gin-gonic/gin").
+// This strips noisy sub-package paths (e.g. ".../gin/internal/render")
+// before they reach the LLM — Optimisation 3.
+func truncateImportPath(imp string) string {
+	parts := strings.Split(imp, "/")
+	if len(parts) <= 3 {
+		return imp
+	}
+	return strings.Join(parts[:3], "/")
+}
+
+// intersectWithDiff filters libs to only those whose base package name or
+// full path appears somewhere in the diff text.
+// Every entry in the returned slice is guaranteed to be actively involved in
+// the provided diff — Optimisation 5.
+func intersectWithDiff(libs []string, diff string) []string {
+	var out []string
+	for _, lib := range libs {
+		// Match on full path OR just the leaf package name.
+		leafName := lib[strings.LastIndex(lib, "/")+1:]
+		if strings.Contains(diff, lib) || strings.Contains(diff, leafName) {
+			out = append(out, lib)
+		}
+	}
+	return out
+}
+
+// BuildContextFromDiff is the optimised RAG entry point used by Pipeline.Run.
+// It applies all five context optimisations before calling the LLM:
+//
+//  1. Flattens and deduplicates the import list (no repeated entries).
+//  2. Drops internal / local file imports (filterExternal inside ExtractImports).
+//  3. Truncates deep sub-package paths to their base module root.
+//  4. Operates exclusively on the unified diff — not full file contents.
+//  5. Intersects the import list with the diff text: only libraries that
+//     appear in the diff are forwarded, so the LLM can rely on the list
+//     entirely for framework-specific advice without hallucinating tech stacks.
+func BuildContextFromDiff(ctx context.Context, client LLMClient, diff string) (*ContextResult, error) {
+	// Steps 1–3: parse additions, extract, filter stdlib, truncate, dedupe.
+	diffFiles := ParseDiffFiles(diff)
+	importInfos := ExtractImportsFromFiles(diffFiles)
+
+	seen := make(map[string]struct{})
+	var flatLibs []string
+	for _, info := range importInfos {
+		for _, lib := range info.Libraries {
+			base := truncateImportPath(lib)
+			if _, ok := seen[base]; !ok {
+				seen[base] = struct{}{}
+				flatLibs = append(flatLibs, base)
+			}
+		}
+	}
+
+	// Step 5: intersect — keep only what the diff actually references.
+	activeLibs := intersectWithDiff(flatLibs, diff)
+
+	// Build the slim dependency context block.
+	var importCtx string
+	if len(activeLibs) > 0 {
+		var sb strings.Builder
+		sb.WriteString("## Active Dependency Context\n\n")
+		for _, lib := range activeLibs {
+			sb.WriteString(fmt.Sprintf("- `%s`\n", lib))
+		}
+		importCtx = sb.String()
+	}
+
+	const maxDiffTokens = 8000
+	estimatedTokens := len(diff) / 4
+	if estimatedTokens > maxDiffTokens {
+		diff = SmartDiffPreprocessing(diff, maxDiffTokens)
+	}
+
+	userPrompt := fmt.Sprintf(
+		"Analyse this code diff and return the JSON summary.\n\n%s\n\nCode Diff:\n%s",
+		importCtx, diff,
+	)
+
+	raw, err := client.Complete(ctx, PromptContextBuilder, userPrompt)
+	if err != nil {
+		fmt.Printf("ERROR: LLM Complete failed in BuildContextFromDiff: %v\n", err)
+		// Graceful fallback: return the dependency list as the summary.
+		return &ContextResult{ArchitectureSummary: importCtx}, nil
+	}
+
+	var result ContextResult
+	if err := parseJSON(raw, &result); err != nil {
+		fmt.Printf("ERROR: LLM returned invalid JSON in BuildContextFromDiff: %v\nRaw response:\n%s\n", err, raw)
+		return &ContextResult{ArchitectureSummary: raw}, nil
+	}
+
+	if err := result.Validate(); err != nil {
+		fmt.Printf("ERROR: LLM JSON failed validation in BuildContextFromDiff: %v\nRaw response:\n%s\n", err, raw)
+		return &ContextResult{ArchitectureSummary: raw}, nil
+	}
+
+	return &result, nil
+}
+
+// SmartDiffPreprocessing intelligently truncates a diff string by keeping full context for risky hunks and summarizing the rest.
+func SmartDiffPreprocessing(diff string, maxTokens int) string {
+	lines := strings.Split(diff, "\n")
+	hunks := ParseHunks(lines)
+	
+	var output []string
+	
+	for _, hunk := range hunks {
+		if ContainsRiskyOperations(hunk) {
+			// KEEP: Full implementation for security-sensitive code
+			output = append(output, hunk.FullContent()...)
+		} else {
+			// KEEP: Only changed lines (diff markers + context)
+			output = append(output, hunk.OnlyChangedLines()...)
+		}
+	}
+	
+	result := strings.Join(output, "\n")
+	
+	// If STILL too large, hard truncate
+	if len(result)/4 > maxTokens {
+		maxChars := maxTokens * 4
+		if len(result) > maxChars {
+			return result[:maxChars] + "\n... [Diff Truncated due to size limits] ..."
+		}
+	}
+	
+	return result
+}
+
+// Hunk represents a unified diff hunk
+type Hunk struct {
+	Header     string
+	Lines      []DiffLine
+	FuncName   string
+}
+
+// DiffLine represents a single line in a diff
+type DiffLine struct {
+	Raw string
+}
+
+func (l DiffLine) IsChanged() bool {
+	return strings.HasPrefix(l.Raw, "+") || strings.HasPrefix(l.Raw, "-")
+}
+
+func (h Hunk) OnlyChangedLines() []string {
+	var output []string
+	if h.FuncName != "" {
+		output = append(output, "// "+h.FuncName)
+	}
+	output = append(output, h.Header)
+	
+	for _, line := range h.Lines {
+		if line.IsChanged() && !strings.HasPrefix(line.Raw, "+++") && !strings.HasPrefix(line.Raw, "---") {
+			output = append(output, line.Raw)
+		}
+	}
+	return output
+}
+
+func (h Hunk) FullContent() []string {
+	var output []string
+	output = append(output, h.Header)
+	for _, line := range h.Lines {
+		output = append(output, line.Raw)
+	}
+	return output
+}
+
+func ParseHunks(lines []string) []Hunk {
+	var hunks []Hunk
+	var currentHunk *Hunk
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "@@ ") {
+			if currentHunk != nil {
+				hunks = append(hunks, *currentHunk)
+			}
+			currentHunk = &Hunk{Header: line}
+			
+			// Attempt to extract function name
+			parts := strings.SplitN(line, "@@", 3)
+			if len(parts) == 3 {
+				currentHunk.FuncName = strings.TrimSpace(parts[2])
+			}
+		} else if currentHunk != nil {
+			currentHunk.Lines = append(currentHunk.Lines, DiffLine{Raw: line})
+		}
+	}
+	if currentHunk != nil {
+		hunks = append(hunks, *currentHunk)
+	}
+	return hunks
+}
+
+func ContainsRiskyOperations(hunk Hunk) bool {
+	content := strings.ToLower(strings.Join(hunk.FullContent(), "\n"))
+	riskPatterns := map[string][]string{
+		"cryptography": {"encrypt", "decrypt", "cipher", "key", "hash", "signing"},
+		"sql":          {"select", "insert", "update", "delete", "execute", "prepare"},
+		"auth":         {"password", "token", "permission", "role", "admin", "access"},
+		"data":         {"truncate", "drop", "delete where", "cascade"},
+		"network":      {"exec", "system", "shell", "command"},
+	}
+	
+	for _, keywords := range riskPatterns {
+		for _, kw := range keywords {
+			if strings.Contains(content, kw) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Language-specific extractors
 // ────────────────────────────────────────────────────────────────────────────
 

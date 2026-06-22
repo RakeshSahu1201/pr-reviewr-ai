@@ -34,9 +34,10 @@ func sessionKey(userID int64) string {
 // SessionData holds the fields cached per authenticated user.
 // Token and WebUrl are stored encrypted; Username, UserID, and ProjectID in plain text.
 type SessionData struct {
-	UserID    int64
-	Username  string
-	ProjectID int64
+	UserID       int64
+	Username     string
+	ProjectID    int64
+	GitlabUserID int
 	// Encrypted ciphertext (base64) — decrypted transparently by SessionStore.
 	EncryptedToken  string
 	EncryptedWebUrl string
@@ -69,6 +70,7 @@ func (s *SessionStore) Set(
 	userID int64,
 	username string,
 	projectID int64,
+	gitlabUserID int,
 	rawToken, rawWebUrl string,
 	ttl time.Duration,
 ) error {
@@ -90,6 +92,7 @@ func (s *SessionStore) Set(
 		"user_id":           userID,
 		"username":          username,
 		"project_id":        projectID,
+		"gitlab_user_id":    gitlabUserID,
 		"encrypted_token":   encToken,
 		"encrypted_web_url": encWebUrl,
 	}
@@ -119,11 +122,13 @@ func (s *SessionStore) Get(ctx context.Context, userID int64) (*SessionData, err
 
 	uid, _ := strconv.ParseInt(fields["user_id"], 10, 64)
 	pid, _ := strconv.ParseInt(fields["project_id"], 10, 64)
+	guid, _ := strconv.Atoi(fields["gitlab_user_id"])
 
 	return &SessionData{
 		UserID:          uid,
 		Username:        fields["username"],
 		ProjectID:       pid,
+		GitlabUserID:    guid,
 		EncryptedToken:  fields["encrypted_token"],
 		EncryptedWebUrl: fields["encrypted_web_url"],
 	}, nil

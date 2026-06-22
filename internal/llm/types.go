@@ -9,8 +9,20 @@ import (
 type ContextResult struct {
 	ArchitectureSummary string   `json:"architecture_summary"`
 	KeyComponents       []string `json:"key_components"`
-	DataFlow            string   `json:"data_flow"`
 	RiskAreas           []string `json:"risk_areas"`
+	MissingContext      []string `json:"missing_context,omitempty"`
+	Optimizations       []string `json:"optimization_opportunities,omitempty"`
+}
+
+// Validate checks if the ContextResult is completely populated.
+func (cr *ContextResult) Validate() error {
+	if cr.ArchitectureSummary == "" {
+		return fmt.Errorf("missing architecture_summary")
+	}
+	if len(cr.KeyComponents) == 0 {
+		return fmt.Errorf("key_components cannot be empty")
+	}
+	return nil
 }
 
 // Issue is a single finding from the code review task.

@@ -1343,22 +1343,20 @@ func (m *UserMutation) ResetEdge(name string) error {
 // UserTokenMutation represents an operation that mutates the UserToken nodes in the graph.
 type UserTokenMutation struct {
 	config
-	op               Op
-	typ              string
-	id               *int
-	token            *string
-	web_url          *string
-	project_id       *int64
-	addproject_id    *int64
-	last_event_id    *int64
-	addlast_event_id *int64
-	updated_at       *time.Time
-	clearedFields    map[string]struct{}
-	owner            *int
-	clearedowner     bool
-	done             bool
-	oldValue         func(context.Context) (*UserToken, error)
-	predicates       []predicate.UserToken
+	op            Op
+	typ           string
+	id            *int
+	token         *string
+	web_url       *string
+	project_id    *int64
+	addproject_id *int64
+	updated_at    *time.Time
+	clearedFields map[string]struct{}
+	owner         *int
+	clearedowner  bool
+	done          bool
+	oldValue      func(context.Context) (*UserToken, error)
+	predicates    []predicate.UserToken
 }
 
 var _ ent.Mutation = (*UserTokenMutation)(nil)
@@ -1614,62 +1612,6 @@ func (m *UserTokenMutation) ResetProjectID() {
 	delete(m.clearedFields, usertoken.FieldProjectID)
 }
 
-// SetLastEventID sets the "last_event_id" field.
-func (m *UserTokenMutation) SetLastEventID(i int64) {
-	m.last_event_id = &i
-	m.addlast_event_id = nil
-}
-
-// LastEventID returns the value of the "last_event_id" field in the mutation.
-func (m *UserTokenMutation) LastEventID() (r int64, exists bool) {
-	v := m.last_event_id
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldLastEventID returns the old "last_event_id" field's value of the UserToken entity.
-// If the UserToken object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserTokenMutation) OldLastEventID(ctx context.Context) (v int64, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldLastEventID is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldLastEventID requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldLastEventID: %w", err)
-	}
-	return oldValue.LastEventID, nil
-}
-
-// AddLastEventID adds i to the "last_event_id" field.
-func (m *UserTokenMutation) AddLastEventID(i int64) {
-	if m.addlast_event_id != nil {
-		*m.addlast_event_id += i
-	} else {
-		m.addlast_event_id = &i
-	}
-}
-
-// AddedLastEventID returns the value that was added to the "last_event_id" field in this mutation.
-func (m *UserTokenMutation) AddedLastEventID() (r int64, exists bool) {
-	v := m.addlast_event_id
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// ResetLastEventID resets all changes to the "last_event_id" field.
-func (m *UserTokenMutation) ResetLastEventID() {
-	m.last_event_id = nil
-	m.addlast_event_id = nil
-}
-
 // SetUpdatedAt sets the "updated_at" field.
 func (m *UserTokenMutation) SetUpdatedAt(t time.Time) {
 	m.updated_at = &t
@@ -1779,7 +1721,7 @@ func (m *UserTokenMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserTokenMutation) Fields() []string {
-	fields := make([]string, 0, 5)
+	fields := make([]string, 0, 4)
 	if m.token != nil {
 		fields = append(fields, usertoken.FieldToken)
 	}
@@ -1788,9 +1730,6 @@ func (m *UserTokenMutation) Fields() []string {
 	}
 	if m.project_id != nil {
 		fields = append(fields, usertoken.FieldProjectID)
-	}
-	if m.last_event_id != nil {
-		fields = append(fields, usertoken.FieldLastEventID)
 	}
 	if m.updated_at != nil {
 		fields = append(fields, usertoken.FieldUpdatedAt)
@@ -1809,8 +1748,6 @@ func (m *UserTokenMutation) Field(name string) (ent.Value, bool) {
 		return m.WebURL()
 	case usertoken.FieldProjectID:
 		return m.ProjectID()
-	case usertoken.FieldLastEventID:
-		return m.LastEventID()
 	case usertoken.FieldUpdatedAt:
 		return m.UpdatedAt()
 	}
@@ -1828,8 +1765,6 @@ func (m *UserTokenMutation) OldField(ctx context.Context, name string) (ent.Valu
 		return m.OldWebURL(ctx)
 	case usertoken.FieldProjectID:
 		return m.OldProjectID(ctx)
-	case usertoken.FieldLastEventID:
-		return m.OldLastEventID(ctx)
 	case usertoken.FieldUpdatedAt:
 		return m.OldUpdatedAt(ctx)
 	}
@@ -1862,13 +1797,6 @@ func (m *UserTokenMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetProjectID(v)
 		return nil
-	case usertoken.FieldLastEventID:
-		v, ok := value.(int64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetLastEventID(v)
-		return nil
 	case usertoken.FieldUpdatedAt:
 		v, ok := value.(time.Time)
 		if !ok {
@@ -1887,9 +1815,6 @@ func (m *UserTokenMutation) AddedFields() []string {
 	if m.addproject_id != nil {
 		fields = append(fields, usertoken.FieldProjectID)
 	}
-	if m.addlast_event_id != nil {
-		fields = append(fields, usertoken.FieldLastEventID)
-	}
 	return fields
 }
 
@@ -1900,8 +1825,6 @@ func (m *UserTokenMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case usertoken.FieldProjectID:
 		return m.AddedProjectID()
-	case usertoken.FieldLastEventID:
-		return m.AddedLastEventID()
 	}
 	return nil, false
 }
@@ -1917,13 +1840,6 @@ func (m *UserTokenMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddProjectID(v)
-		return nil
-	case usertoken.FieldLastEventID:
-		v, ok := value.(int64)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.AddLastEventID(v)
 		return nil
 	}
 	return fmt.Errorf("unknown UserToken numeric field %s", name)
@@ -1975,9 +1891,6 @@ func (m *UserTokenMutation) ResetField(name string) error {
 		return nil
 	case usertoken.FieldProjectID:
 		m.ResetProjectID()
-		return nil
-	case usertoken.FieldLastEventID:
-		m.ResetLastEventID()
 		return nil
 	case usertoken.FieldUpdatedAt:
 		m.ResetUpdatedAt()

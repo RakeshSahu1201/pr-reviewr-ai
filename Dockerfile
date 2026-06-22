@@ -10,12 +10,17 @@ WORKDIR /app
 
 # Download dependencies first (layer-cached unless go.mod/go.sum changes)
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
-# Copy source and build a fully static binary
+# Copy source, generate ent code, and build binaries
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux \
-    go build -ldflags="-w -s" -o /app/pr-reviewer-ai .
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    go generate ./ent
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/api ./cmd/api
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/worker ./cmd/worker
 
 # ────────────────────────────────────────────────
 # Stage 2 — Run
@@ -27,12 +32,8 @@ RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
 
-COPY --from=builder /app/pr-reviewer-ai .
+COPY --from=builder /app/api .
+COPY --from=builder /app/worker .
 
-# The app reads all config from environment variables — no config files to COPY.
-EXPOSE 8080
-
-HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -qO- http://localhost:8080/healthz || exit 1
-
-ENTRYPOINT ["./pr-reviewer-ai"]
+# Default to api, but usually overridden by docker-compose command
+ENTRYPOINT ["./api"]

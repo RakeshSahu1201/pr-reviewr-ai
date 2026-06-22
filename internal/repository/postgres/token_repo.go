@@ -11,6 +11,7 @@ import (
 	"pr-reviewer-ai/ent/usertoken"
 
 	"pr-reviewer-ai/internal/repository"
+
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -137,7 +138,6 @@ func (r *TokenRepo) GetToken(userID int64) (string, error) {
 	return tok.Token, nil
 }
 
-
 // upsertToken creates or updates the UserToken for internal ownerID within the given transaction.
 func upsertToken(ctx context.Context, tx *ent.Tx, ownerID int, encryptedToken, encryptedWebUrl string) error {
 	existing, err := tx.UserToken.Query().
@@ -217,31 +217,21 @@ func (r *TokenRepo) GetAllTokens() ([]repository.UserTokenInfo, error) {
 		if t.WebURL != nil {
 			url = *t.WebURL
 		}
+		var guid int
+		if t.Edges.Owner.GitlabUserID != nil {
+			guid = *t.Edges.Owner.GitlabUserID
+		}
 		results = append(results, repository.UserTokenInfo{
-			UserID:      int64(t.Edges.Owner.ID),
-			Token:       t.Token,
-			WebUrl:      url,
-			ProjectID:   pid,
-			LastEventID: t.LastEventID,
+			UserID:       int64(t.Edges.Owner.ID),
+			Token:        t.Token,
+			WebUrl:       url,
+			ProjectID:    pid,
+			GitlabUserID: guid,
 		})
 	}
 	return results, nil
 }
 
-// UpdateLastEventID updates the last seen event ID for userID.
-func (r *TokenRepo) UpdateLastEventID(userID int64, eventID int64) error {
-	uid := int(userID)
-	ctx := context.Background()
-
-	err := r.client.UserToken.Update().
-		Where(usertoken.HasOwnerWith(user.IDEQ(uid))).
-		SetLastEventID(eventID).
-		Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("repository: update last event id: %w", err)
-	}
-	return nil
-}
 
 // GetGitlabUserID retrieves the stored GitLab numeric user ID for the given username.
 func (r *TokenRepo) GetGitlabUserID(username string) (int, error) {
@@ -254,6 +244,22 @@ func (r *TokenRepo) GetGitlabUserID(username string) (int, error) {
 	}
 	if u.GitlabUserID == nil {
 		return 0, fmt.Errorf("repository: gitlab_user_id not set for user: %s", username)
+	}
+	return *u.GitlabUserID, nil
+}
+
+// GetGitlabUserIDByID retrieves the stored GitLab numeric user ID for the given internal userID.
+func (r *TokenRepo) GetGitlabUserIDByID(userID int64) (int, error) {
+	uid := int(userID)
+	u, err := r.client.User.Get(context.Background(), uid)
+	if ent.IsNotFound(err) {
+		return 0, fmt.Errorf("repository: user not found: %d", uid)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("repository: get gitlab user id: %w", err)
+	}
+	if u.GitlabUserID == nil {
+		return 0, fmt.Errorf("repository: gitlab_user_id not set for user: %d", uid)
 	}
 	return *u.GitlabUserID, nil
 }

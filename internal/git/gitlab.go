@@ -3,6 +3,7 @@ package git
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
@@ -10,8 +11,9 @@ import (
 // GitLabProvider implements GitProvider using the GitLab REST API.
 // It is the only file in the entire codebase that imports a GitLab-specific SDK.
 type GitLabProvider struct {
-	client    *gitlab.Client
-	projectID int64
+	client       *gitlab.Client
+	projectID    int64
+	gitlabUserID int
 }
 
 // NewGitLabProvider constructs a GitLabProvider.
@@ -19,24 +21,24 @@ type GitLabProvider struct {
 //	baseURL   – GitLab instance URL, e.g. "https://gitlab.com"
 //	token     – Personal Access Token with api scope
 //	projectID – GitLab project numeric ID
-func NewGitLabProvider(baseURL, token string, projectID int64) (*GitLabProvider, error) {
+func NewGitLabProvider(baseURL, token string, projectID int64, gitlabUserID int) (*GitLabProvider, error) {
 	client, err := gitlab.NewClient(token, gitlab.WithBaseURL(baseURL))
 	if err != nil {
 		return nil, fmt.Errorf("git: failed to create GitLab client: %w", err)
 	}
-	return &GitLabProvider{client: client, projectID: projectID}, nil
+	return &GitLabProvider{
+		client:       client,
+		projectID:    projectID,
+		gitlabUserID: gitlabUserID,
+	}, nil
 }
 
 // FetchDiff retrieves the unified diff for the given merge request.
 // Uses ListMergeRequestDiffs (replaces deprecated GetMergeRequestChanges).
 func (g *GitLabProvider) FetchDiff(mrID int) (string, error) {
-	opts := &gitlab.ListMergeRequestDiffsOptions{
-		ListOptions: gitlab.ListOptions{PerPage: 50},
-	}
-
 	var sb strings.Builder
 	for {
-		diffs, resp, err := g.client.MergeRequests.ListMergeRequestDiffs(g.projectID, int64(mrID), opts)
+		diffs, resp, err := g.client.MergeRequests.ListMergeRequestDiffs(g.projectID, int64(mrID), nil)
 		if err != nil {
 			return "", fmt.Errorf("git: FetchDiff MR %d: %w", mrID, err)
 		}
@@ -48,7 +50,6 @@ func (g *GitLabProvider) FetchDiff(mrID int) (string, error) {
 		if resp.NextPage == 0 {
 			break
 		}
-		opts.Page = resp.NextPage
 	}
 	return sb.String(), nil
 }
@@ -65,44 +66,64 @@ func (g *GitLabProvider) PostReview(mrID int, comment string) error {
 	return nil
 }
 
-// FetchRecentEvents fetches the events performed by the authenticated user since the given event ID.
-// It uses ListCurrentUserContributionEvents to get only the relevant UI actions.
-func (g *GitLabProvider) FetchRecentEvents(sinceEventID int) ([]UserEvent, error) {
+// FetchRecentEvents fetches contribution events performed by the authenticated user
+// that occurred after `since`. Callers pass time.Now().Add(-5*time.Minute) so each
+// poll only surfaces activity from the last polling window.
+func (g *GitLabProvider) FetchRecentEvents(since time.Time) ([]UserEvent, error) {
+	// The GitLab API 'after' parameter for events only supports date-level precision (YYYY-MM-DD).
+	// To get today's events, we must request events starting from yesterday and then
+	// filter them by the exact timestamp in-memory.
+
+	// 2. Parse it using the GitLab helper
+	// This helper expects "2006-01-02"
+	after, _ := gitlab.ParseISOTime(time.Now().AddDate(0, 0, -1).Format("2006-01-02"))
+	// after, _ := gitlab.ParseISOTime(since.Format("2006-01-02"))
 	opts := &gitlab.ListContributionEventsOptions{
+		After: &after,
 		ListOptions: gitlab.ListOptions{
-			PerPage: 20,
+			PerPage: 50,
 			Page:    1,
 		},
 	}
 
-	events, _, err := g.client.Events.ListCurrentUserContributionEvents(opts)
+	var events []*gitlab.ContributionEvent
+	var err error
+
+	if g.gitlabUserID > 0 {
+		// Use the user-specific events API as requested: api/v4/users/:id/events
+		events, _, err = g.client.Users.ListUserContributionEvents(g.gitlabUserID, opts)
+	} else {
+		// Fallback to the authenticated user's events if ID is missing.
+		events, _, err = g.client.Events.ListCurrentUserContributionEvents(opts)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("git: FetchRecentEvents: %w", err)
 	}
 
 	var results []UserEvent
-	// Build backward so we process the oldest "new" events first implicitly.
-	// Actually we reverse the array directly.
-	for i := len(events) - 1; i >= 0; i-- {
-		event := events[i]
-		if int(event.ID) <= sinceEventID {
+	for _, event := range events {
+		// In-memory filter to ensure we only return events within the precise window.
+		if event.CreatedAt == nil || event.CreatedAt.Before(since) {
 			continue
 		}
 
 		userEvent := UserEvent{
-			ID:          event.ID,
 			ActionName:  event.ActionName,
 			TargetType:  event.TargetType,
 			TargetTitle: event.TargetTitle,
+			NoteableID:  event.Note.NoteableID,
+			NoteableIID: event.Note.NoteableIID,
 		}
-
-		if event.Note != nil {
+		if event.TargetType == "Note" && event.Note != nil {
 			userEvent.Body = event.Note.Body
+			// For comments, GitLab sets TargetType to "Note" or "DiffNote",
+			// but we want the logical target type (e.g. "MergeRequest")
+			// if event.Note.NoteableType != "" {
+			// 	userEvent.TargetType = event.Note.NoteableType
+			// }
 		}
-
-		// PushData is a struct, so we can just map the Ref directly (it defaults to empty string)
 		userEvent.Ref = event.PushData.Ref
-
 		results = append(results, userEvent)
 	}
 

@@ -50,6 +50,10 @@ type Config struct {
 	RedisPassword string // optional
 	RedisDB       int    // default 0
 
+	// Runtime role — governs which subsystems are started.
+	// Values: "api" | "worker" | "standalone" (default)
+	AppRole string
+
 	// Server
 	Port string
 }
@@ -99,6 +103,7 @@ func Load() (*Config, error) {
 		JWTExpiryHours: jwtExpiryHours,
 		GitLabBaseURL:  getOrDefault("GITLAB_BASE_URL", "https://gitlab.com"),
 		GitLabProject:  parseGitlabProjectID(os.Getenv("GITLAB_PROJECT_ID")),
+		AppRole:        getOrDefault("APP_ROLE", "standalone"),
 		Port:           getOrDefault("PORT", "8080"),
 		// Legacy single-provider
 		GeminiAPIKey: os.Getenv("GEMINI_API_KEY"),

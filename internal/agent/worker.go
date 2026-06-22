@@ -2,34 +2,48 @@ package agent
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"log/slog"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
 	"pr-reviewer-ai/internal/auth"
 	"pr-reviewer-ai/internal/git"
 	"pr-reviewer-ai/internal/llm"
 	"pr-reviewer-ai/internal/repository"
-	"time"
 )
 
 // Worker handles background polling of GitLab events and triggers automated reviews.
 type Worker struct {
 	authSvc    *auth.AuthService
 	logRepo    repository.ReviewLogRepository
-	gitFactory func(webUrl, token string, projectID int64) (git.GitProvider, error)
+	gitFactory func(webUrl, token string, projectID int64, gitlabUserID int) (git.GitProvider, error)
 	pipeline   *llm.Pipeline
+	log        *slog.Logger
+
+	mu        sync.Mutex
+	processed map[string]time.Time
 }
 
 // NewWorker creates a background event worker.
+// logger should be pre-stamped with the active app_role attribute so every log
+// entry emitted by the worker is traceable in production without extra decoration.
 func NewWorker(
 	authSvc *auth.AuthService,
 	logRepo repository.ReviewLogRepository,
-	gitFactory func(webUrl, token string, projectID int64) (git.GitProvider, error),
+	gitFactory func(webUrl, token string, projectID int64, gitlabUserID int) (git.GitProvider, error),
 	pipeline *llm.Pipeline,
+	logger *slog.Logger,
 ) *Worker {
 	return &Worker{
 		authSvc:    authSvc,
 		logRepo:    logRepo,
 		gitFactory: gitFactory,
 		pipeline:   pipeline,
+		log:        logger,
+		processed:  make(map[string]time.Time),
 	}
 }
 
@@ -38,12 +52,12 @@ func (w *Worker) Start(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	log.Printf("🤖 background worker started (interval: %v)", interval)
+	w.log.Info("background worker started", "interval", interval)
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("🤖 background worker stopping...")
+			w.log.Info("background worker stopping")
 			return
 		case <-ticker.C:
 			w.processAllUsers(ctx)
@@ -54,7 +68,7 @@ func (w *Worker) Start(ctx context.Context, interval time.Duration) {
 func (w *Worker) processAllUsers(ctx context.Context) {
 	infos, err := w.authSvc.GetAllUserTokens()
 	if err != nil {
-		log.Printf("worker: failed to fetch users: %v", err)
+		w.log.Error("failed to fetch users", "err", err)
 		return
 	}
 
@@ -63,21 +77,27 @@ func (w *Worker) processAllUsers(ctx context.Context) {
 			continue // skip users without a default project
 		}
 
-		// Process user in a separate goroutine or sequentially (sequentially for now to keep it simple and safe).
+		// Process users sequentially to keep logic simple and safe.
 		w.processUser(ctx, info)
 	}
 }
 
+type EventDetail struct {
+	Target      string
+	Description string
+}
+
 func (w *Worker) processUser(ctx context.Context, info auth.UserTokenInfo) {
-	provider, err := w.gitFactory(info.WebUrl, info.Token, info.ProjectID)
+	provider, err := w.gitFactory(info.WebUrl, info.Token, info.ProjectID, info.GitlabUserID)
 	if err != nil {
-		log.Printf("worker: failed to build git provider for user %d: %v", info.UserID, err)
+		w.log.Error("failed to build git provider", "user_id", info.UserID, "err", err)
 		return
 	}
 
-	events, err := provider.FetchRecentEvents(int(info.LastEventID))
+	// Fetch only events from the last window.
+	events, err := provider.FetchRecentEvents(time.Now().Add(-5 * time.Minute))
 	if err != nil {
-		log.Printf("worker: failed to fetch events for user %d: %v", info.UserID, err)
+		w.log.Error("failed to fetch events", "user_id", info.UserID, "err", err)
 		return
 	}
 
@@ -85,33 +105,142 @@ func (w *Worker) processUser(ctx context.Context, info auth.UserTokenInfo) {
 		return
 	}
 
-	maxID := info.LastEventID
+	w.log.Info("events fetched", "user_id", info.UserID, "events_count", len(events))
+
 	for _, event := range events {
-		if event.ID > maxID {
-			maxID = event.ID
-		}
+		w.handleEvent(ctx, provider, info, event)
+	}
+}
 
-		// We only care about MergeRequest events for now.
-		// ActionName: "opened", "closed", "merged", "reopened", "updated", "commented on"
-		if event.TargetType != "MergeRequest" {
-			continue
-		}
+// handleEvent dispatches the event to the appropriate handler based on action and type.
+func (w *Worker) handleEvent(ctx context.Context, provider git.GitProvider, info auth.UserTokenInfo, event git.UserEvent) {
+	// Deduplicate events to avoid processing the same comment repeatedly
+	hash := fmt.Sprintf("%d:%s:%s:%d:%s", info.UserID, event.ActionName, event.TargetTitle, event.NoteableIID, event.Body)
 
-		// Logic to extract MR ID from title or other metadata?
-		// Actually, standard GitLab events don't easily give the MR numeric ID in the basic event payload.
-		// Wait, let's check what UserEvent has.
-		// It has TargetTitle.
-		// Maybe I should fetch more details or use a different API.
-		
-		// For now, let's assume if it's a MergeRequest event, we might want to check it.
-		// But we need the IID/ID.
-		
-		// If the user's requirement is "monitor mr", maybe we should poll MRs directly?
-		// But polling events is more efficient than polling ALL MRs for ALL projects.
+	w.mu.Lock()
+	if _, ok := w.processed[hash]; ok {
+		w.mu.Unlock()
+		return // Already processed this event
 	}
 
-	// Update watermark regardless of whether we did a review.
-	if maxID > info.LastEventID {
-		_ = w.authSvc.UpdateLastEventID(info.UserID, maxID)
+	// Clean up old entries
+	now := time.Now()
+	for k, v := range w.processed {
+		if now.Sub(v) > 10*time.Minute {
+			delete(w.processed, k)
+		}
 	}
+	w.processed[hash] = now
+	w.mu.Unlock()
+
+	detail := w.extractEventDetails(event)
+	w.log.Info(
+		"processing event",
+		"target", detail.Target,
+		"action", event.ActionName,
+		"body", event.Body,
+		"noteable_id", event.NoteableID,
+		"noteable_iid", event.NoteableIID,
+	)
+
+	switch event.ActionName {
+	case "commented on":
+		// Task: Handle review triggers via MR comments.
+		if strings.Contains(event.Body, "review") {
+			w.handleMergeRequestComment(ctx, provider, info, event)
+		}
+
+	case "opened":
+		// Task: Future implementation for auto-reviewing new/reopened MRs.
+		w.log.Info("new/reopened MR observed", "target", detail.Target)
+
+	case "updated":
+		// Task: Future implementation for re-reviewing on code updates.
+		w.log.Info("MR update observed", "target", detail.Target)
+
+	default:
+		w.log.Debug("ignoring MR action", "action", event.ActionName)
+	}
+}
+
+// extractEventDetails maps event fields to a generic detail structure for logging/extraction.
+func (w *Worker) extractEventDetails(event git.UserEvent) EventDetail {
+	var detail EventDetail
+	switch event.ActionName {
+	case "commented on":
+		detail.Target = event.TargetTitle
+		detail.Description = event.Body
+	default:
+		detail.Target = event.TargetTitle
+		detail.Description = event.ActionName
+	}
+	return detail
+}
+
+// handleMergeRequestComment contains the logic for triggering a RAG-based review from a comment.
+func (w *Worker) handleMergeRequestComment(ctx context.Context, provider git.GitProvider, info auth.UserTokenInfo, event git.UserEvent) {
+	w.log.Info("review comment detected — processing",
+		"user_id", info.UserID,
+		"target_title", event.TargetTitle,
+		"comment_body", event.Body,
+	)
+
+	// 1. Resolve MR IID
+	// mrIID, parseErr := parseMRIID(event.TargetTitle)
+	// if parseErr != nil {
+	// 	w.log.Warn("could not extract MR IID from title — skipping", "target_title", event.TargetTitle)
+	// 	return
+	// }
+
+	// 2. Fetch the unified diff
+	diff, err := provider.FetchDiff(int(event.NoteableIID))
+	if err != nil {
+		w.log.Error("failed to fetch diff", "user_id", info.UserID, "mr_iid", event.NoteableIID, "err", err)
+		return
+	}
+
+	// 3. RAG context build
+	if w.pipeline != nil {
+		w.runRAGPipeline(ctx, info.UserID, int(event.NoteableIID), diff)
+	} else {
+		w.log.Warn("pipeline not configured — skipping RAG context build", "user_id", info.UserID, "mr_iid", event.NoteableIID)
+	}
+
+	// 4. Persistence (logging)
+	w.log.Info("[TEST] would save review log to DB",
+		"user_id", info.UserID,
+		"mr_iid", event.NoteableIID,
+		"project_id", info.ProjectID,
+		"comment_body", event.Body,
+	)
+}
+
+func (w *Worker) runRAGPipeline(ctx context.Context, userID int64, mrIID int, diff string) {
+	ctxResult, err := llm.BuildContextFromDiff(ctx, w.pipeline.Client(), diff)
+	if err != nil {
+		w.log.Error("BuildContextFromDiff failed", "user_id", userID, "mr_iid", mrIID, "err", err)
+		return
+	}
+
+	w.log.Info("RAG context built",
+		"user_id", userID,
+		"mr_iid", mrIID,
+		"architecture_summary", ctxResult.ArchitectureSummary,
+		"key_components", ctxResult.KeyComponents,
+		"risk_areas", ctxResult.RiskAreas,
+	)
+}
+
+// parseMRIID extracts a numeric MR IID from a GitLab event title.
+// It scans space-separated tokens for a "!<n>" prefix or a bare integer.
+// Examples that match:  "!42"  "Fix login bug !42"  "42"
+func parseMRIID(title string) (int, error) {
+	for _, token := range strings.Fields(title) {
+		token = strings.TrimPrefix(token, "!")
+		token = strings.Trim(token, ".,;:")
+		if n, err := strconv.Atoi(token); err == nil && n > 0 {
+			return n, nil
+		}
+	}
+	return 0, strconv.ErrSyntax
 }

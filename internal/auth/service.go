@@ -166,6 +166,15 @@ func (a *AuthService) GetGitlabUserID(username string) (int, error) {
 	return id, nil
 }
 
+// GetGitlabUserIDByID returns the stored GitLab numeric user ID for the given internal userID.
+func (a *AuthService) GetGitlabUserIDByID(userID int64) (int, error) {
+	id, err := a.repo.GetGitlabUserIDByID(userID)
+	if err != nil {
+		return 0, fmt.Errorf("auth: %w", err)
+	}
+	return id, nil
+}
+
 // UpdateProjectID updates the default GitLab project ID for the user.
 func (a *AuthService) UpdateProjectID(userID int64, projectID int64) error {
 	if projectID <= 0 {
@@ -187,11 +196,11 @@ func (a *AuthService) GetProjectID(userID int64) (int64, error) {
 }
 
 type UserTokenInfo struct {
-	UserID      int64
-	Token       string
-	WebUrl      string
-	ProjectID   int64
-	LastEventID int64
+	UserID       int64
+	Token        string
+	WebUrl       string
+	ProjectID    int64
+	GitlabUserID int
 }
 
 // GetAllUserTokens retrieves all tokens and decrypts them.
@@ -209,17 +218,13 @@ func (a *AuthService) GetAllUserTokens() ([]UserTokenInfo, error) {
 			continue // skip malformed
 		}
 		results = append(results, UserTokenInfo{
-			UserID:      info.UserID,
-			Token:       tok,
-			WebUrl:      url,
-			ProjectID:   info.ProjectID,
-			LastEventID: info.LastEventID,
+			UserID:       info.UserID,
+			Token:        tok,
+			WebUrl:       url,
+			ProjectID:    info.ProjectID,
+			GitlabUserID: info.GitlabUserID,
 		})
 	}
 	return results, nil
 }
 
-// UpdateLastEventID updates the watermark in DB.
-func (a *AuthService) UpdateLastEventID(userID int64, eventID int64) error {
-	return a.repo.UpdateLastEventID(userID, eventID)
-}

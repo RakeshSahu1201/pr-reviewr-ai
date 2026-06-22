@@ -32,7 +32,7 @@ type Server struct {
 
 // GitProviderFactory creates a GitProvider for a given user token, base URL, and optional project ID.
 // Injected from app.go to keep server.go provider-agnostic.
-type GitProviderFactory func(webUrl, token string, projectID int64) (git.GitProvider, error)
+type GitProviderFactory func(webUrl, token string, projectID int64, gitlabUserID int) (git.GitProvider, error)
 
 // New creates a Server and registers all routes.
 func New(
@@ -148,12 +148,16 @@ func (s *Server) handleLogin(c *gin.Context) {
 		rawToken, errT := s.authSvc.GetToken(userID)
 		rawWebUrl, errW := s.authSvc.GetWebUrl(userID)
 		projectID, _ := s.authSvc.GetProjectID(userID)
+		var guid int
+		if loginUser.GitlabUserID != nil {
+			guid = *loginUser.GitlabUserID
+		}
 		if errT == nil && errW == nil {
 			ttl := s.jwtSvc.ExpiryDuration()
 			if ttl <= 0 {
 				ttl = 24 * time.Hour
 			}
-			_ = s.sessionStore.Set(c.Request.Context(), userID, loginUser.Username, projectID, rawToken, rawWebUrl, ttl)
+			_ = s.sessionStore.Set(c.Request.Context(), userID, loginUser.Username, projectID, guid, rawToken, rawWebUrl, ttl)
 		}
 	}
 
@@ -174,29 +178,31 @@ func (s *Server) handleLogout(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "logged out"})
 }
 
-// getTokenAndWebUrl fetches the user's token and webUrl, preferring the Redis
+// getUserGitConfig fetches the user's token, webUrl, and gitlabUserID, preferring the Redis
 // cache and falling back to Postgres transparently.
-func (s *Server) getTokenAndWebUrl(c *gin.Context, userID int64) (token, webUrl string, err error) {
+func (s *Server) getUserGitConfig(c *gin.Context, userID int64) (token, webUrl string, guid int, err error) {
 	// Try cache first.
 	if s.sessionStore != nil {
-		token, err = s.sessionStore.Token(c.Request.Context(), userID)
-		if err == nil && token != "" {
-			webUrl, err = s.sessionStore.WebUrl(c.Request.Context(), userID)
-			if err == nil && webUrl != "" {
-				return token, webUrl, nil
+		data, err := s.sessionStore.Get(c.Request.Context(), userID)
+		if err == nil && data != nil {
+			token, errT := s.sessionStore.Token(c.Request.Context(), userID)
+			webUrl, errW := s.sessionStore.WebUrl(c.Request.Context(), userID)
+			if errT == nil && errW == nil && token != "" && webUrl != "" {
+				return token, webUrl, data.GitlabUserID, nil
 			}
 		}
 	}
 	// Cache miss or error — fall back to Postgres.
 	token, err = s.authSvc.GetToken(userID)
 	if err != nil {
-		return "", "", fmt.Errorf("no GitLab token found — call /api/auth/login first")
+		return "", "", 0, fmt.Errorf("failed to retrieve GitLab token: %w", err)
 	}
 	webUrl, err = s.authSvc.GetWebUrl(userID)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to retrieve GitLab base URL: %w", err)
+		return "", "", 0, fmt.Errorf("failed to retrieve GitLab base URL: %w", err)
 	}
-	return token, webUrl, nil
+	guid, _ = s.authSvc.GetGitlabUserIDByID(userID)
+	return token, webUrl, guid, nil
 }
 
 func (s *Server) handleReview(c *gin.Context) {
@@ -229,13 +235,13 @@ func (s *Server) handleReview(c *gin.Context) {
 		return
 	}
 
-	token, webUrl, err := s.getTokenAndWebUrl(c, userID)
+	token, webUrl, guid, err := s.getUserGitConfig(c, userID)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 
-	provider, err := s.gitFactory(webUrl, token, body.ProjectID)
+	provider, err := s.gitFactory(webUrl, token, body.ProjectID, guid)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to build git provider: %v", err)})
 		return
@@ -266,13 +272,13 @@ func (s *Server) handleListReviews(c *gin.Context) {
 func (s *Server) handleListProjects(c *gin.Context) {
 	userID := c.GetInt64("userID")
 
-	token, webUrl, err := s.getTokenAndWebUrl(c, userID)
+	token, webUrl, guid, err := s.getUserGitConfig(c, userID)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 
-	provider, err := s.gitFactory(webUrl, token, 0)
+	provider, err := s.gitFactory(webUrl, token, 0, guid)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to build git provider: %v", err)})
 		return

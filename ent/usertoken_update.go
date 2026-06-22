@@ -90,27 +90,6 @@ func (_u *UserTokenUpdate) ClearProjectID() *UserTokenUpdate {
 	return _u
 }
 
-// SetLastEventID sets the "last_event_id" field.
-func (_u *UserTokenUpdate) SetLastEventID(v int64) *UserTokenUpdate {
-	_u.mutation.ResetLastEventID()
-	_u.mutation.SetLastEventID(v)
-	return _u
-}
-
-// SetNillableLastEventID sets the "last_event_id" field if the given value is not nil.
-func (_u *UserTokenUpdate) SetNillableLastEventID(v *int64) *UserTokenUpdate {
-	if v != nil {
-		_u.SetLastEventID(*v)
-	}
-	return _u
-}
-
-// AddLastEventID adds value to the "last_event_id" field.
-func (_u *UserTokenUpdate) AddLastEventID(v int64) *UserTokenUpdate {
-	_u.mutation.AddLastEventID(v)
-	return _u
-}
-
 // SetUpdatedAt sets the "updated_at" field.
 func (_u *UserTokenUpdate) SetUpdatedAt(v time.Time) *UserTokenUpdate {
 	_u.mutation.SetUpdatedAt(v)
@@ -212,12 +191,6 @@ func (_u *UserTokenUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.ProjectIDCleared() {
 		_spec.ClearField(usertoken.FieldProjectID, field.TypeInt64)
-	}
-	if value, ok := _u.mutation.LastEventID(); ok {
-		_spec.SetField(usertoken.FieldLastEventID, field.TypeInt64, value)
-	}
-	if value, ok := _u.mutation.AddedLastEventID(); ok {
-		_spec.AddField(usertoken.FieldLastEventID, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(usertoken.FieldUpdatedAt, field.TypeTime, value)
@@ -329,27 +302,6 @@ func (_u *UserTokenUpdateOne) AddProjectID(v int64) *UserTokenUpdateOne {
 // ClearProjectID clears the value of the "project_id" field.
 func (_u *UserTokenUpdateOne) ClearProjectID() *UserTokenUpdateOne {
 	_u.mutation.ClearProjectID()
-	return _u
-}
-
-// SetLastEventID sets the "last_event_id" field.
-func (_u *UserTokenUpdateOne) SetLastEventID(v int64) *UserTokenUpdateOne {
-	_u.mutation.ResetLastEventID()
-	_u.mutation.SetLastEventID(v)
-	return _u
-}
-
-// SetNillableLastEventID sets the "last_event_id" field if the given value is not nil.
-func (_u *UserTokenUpdateOne) SetNillableLastEventID(v *int64) *UserTokenUpdateOne {
-	if v != nil {
-		_u.SetLastEventID(*v)
-	}
-	return _u
-}
-
-// AddLastEventID adds value to the "last_event_id" field.
-func (_u *UserTokenUpdateOne) AddLastEventID(v int64) *UserTokenUpdateOne {
-	_u.mutation.AddLastEventID(v)
 	return _u
 }
 
@@ -484,12 +436,6 @@ func (_u *UserTokenUpdateOne) sqlSave(ctx context.Context) (_node *UserToken, er
 	}
 	if _u.mutation.ProjectIDCleared() {
 		_spec.ClearField(usertoken.FieldProjectID, field.TypeInt64)
-	}
-	if value, ok := _u.mutation.LastEventID(); ok {
-		_spec.SetField(usertoken.FieldLastEventID, field.TypeInt64, value)
-	}
-	if value, ok := _u.mutation.AddedLastEventID(); ok {
-		_spec.AddField(usertoken.FieldLastEventID, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(usertoken.FieldUpdatedAt, field.TypeTime, value)
