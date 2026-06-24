@@ -2,6 +2,8 @@ package llm
 
 import (
 	"context"
+	"fmt"
+	"sync"
 )
 
 // Pipeline is the top-level orchestrator that runs the full analysis flow:
@@ -40,73 +42,78 @@ func (p *Pipeline) Run(ctx context.Context, diff string) (*AnalysisResult, error
 		}
 	}
 
-	// // ─────────────────────────────────────────────────────────
-	// // Stage 2: Meta Prompt — decide which tasks to run
-	// // ─────────────────────────────────────────────────────────
-	// tasks, reasoning, _ := Orchestrate(ctx, p.client)
-	// result.TasksRun = tasks
-	// result.Reasoning = reasoning
+	// ─────────────────────────────────────────────────────────
+	// Stage 2: Meta Prompt — decide which tasks to run
+	// ─────────────────────────────────────────────────────────
+	tasks, reasoning, _ := Orchestrate(ctx, p.client, diff)
+	result.TasksRun = tasks
+	result.Reasoning = reasoning
 
-	// // ─────────────────────────────────────────────────────────
-	// // Stage 3: Parallel Execution
-	// // ─────────────────────────────────────────────────────────
-	// type parallelResult struct {
-	// 	review   *ReviewResult
-	// 	bug      *BugResult
-	// 	optimize *OptimizationResult
-	// 	lint     *LintResult
-	// }
-	// var (
-	// 	mu sync.Mutex
-	// 	pr parallelResult
-	// 	wg sync.WaitGroup
-	// )
+	// ─────────────────────────────────────────────────────────
+	// Stage 3: Parallel Execution
+	// ─────────────────────────────────────────────────────────
+	type parallelResult struct {
+		review   *ReviewResult
+		bug      *BugResult
+		optimize *OptimizationResult
+		lint     *LintResult
+	}
+	var (
+		mu sync.Mutex
+		pr parallelResult
+		wg sync.WaitGroup
+	)
 
-	// for _, task := range tasks {
-	// 	wg.Add(1)
-	// 	go func(t string) {
-	// 		defer wg.Done()
-	// 		switch t {
-	// 		case "review":
-	// 			r, err := RunReview(ctx, p.client, diff)
-	// 			if err == nil {
-	// 				mu.Lock()
-	// 				pr.review = r
-	// 				mu.Unlock()
-	// 			}
-	// 		case "bug":
-	// 			r, err := RunBugAnalysis(ctx, p.client, diff, "", "no errors expected")
-	// 			if err == nil {
-	// 				mu.Lock()
-	// 				pr.bug = r
-	// 				mu.Unlock()
-	// 			}
-	// 		case "optimize":
-	// 			r, err := RunOptimization(ctx, p.client, diff)
-	// 			if err == nil {
-	// 				mu.Lock()
-	// 				pr.optimize = r
-	// 				mu.Unlock()
-	// 			}
-	// 		case "lint":
-	// 			r, err := RunLint(ctx, p.client, diff)
-	// 			if err == nil {
-	// 				mu.Lock()
-	// 				pr.lint = r
-	// 				mu.Unlock()
-	// 			}
-	// 		}
-	// 	}(task)
-	// }
-	// wg.Wait()
+	for _, task := range tasks {
+		wg.Add(1)
+		go func(t string) {
+			defer wg.Done()
+			switch t {
+			case "review":
+				r, err := RunReview(ctx, p.client, diff)
+				if err == nil {
+					mu.Lock()
+					pr.review = r
+					mu.Unlock()
+				}
+			case "bug":
+				r, err := RunBugAnalysis(ctx, p.client, diff, "", "no errors expected")
+				if err == nil {
+					mu.Lock()
+					pr.bug = r
+					mu.Unlock()
+				}
+			case "optimize":
+				r, err := RunOptimization(ctx, p.client, diff)
+				if err == nil {
+					mu.Lock()
+					pr.optimize = r
+					mu.Unlock()
+				}
+			case "lint":
+				r, err := RunLint(ctx, p.client, diff)
+				if err == nil {
+					mu.Lock()
+					pr.lint = r
+					mu.Unlock()
+				}
+			}
+		}(task)
+	}
+	wg.Wait()
 
-	// // ─────────────────────────────────────────────────────────
-	// // Stage 4: Merge Results
-	// // ─────────────────────────────────────────────────────────
-	// result.Review = pr.review
-	// result.BugAnalysis = pr.bug
-	// result.Optimization = pr.optimize
-	// result.Lint = pr.lint
+	// ─────────────────────────────────────────────────────────
+	// Stage 4: Merge Results
+	// ─────────────────────────────────────────────────────────
+	result.Review = pr.review
+	result.BugAnalysis = pr.bug
+	result.Optimization = pr.optimize
+	result.Lint = pr.lint
+
+	// If the API completely failed (e.g. 503 high demand) for all tasks, abort!
+	if result.Context == nil && result.Review == nil && result.BugAnalysis == nil && result.Optimization == nil && result.Lint == nil {
+		return nil, fmt.Errorf("all LLM analysis tasks failed or timed out (possible API rate limits)")
+	}
 
 	return result, nil
 }

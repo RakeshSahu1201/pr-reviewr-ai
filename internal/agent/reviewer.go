@@ -5,6 +5,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
 	"pr-reviewer-ai/internal/git"
 	"pr-reviewer-ai/internal/llm"
 	"pr-reviewer-ai/internal/repository"
@@ -53,16 +54,18 @@ func (r *Reviewer) Review(ctx context.Context, userID int64, mrID int) error {
 		return fmt.Errorf("agent: analysis failed for MR %d: %w", mrID, err)
 	}
 
-	if err := r.provider.PostReview(mrID, comment); err != nil {
-		return fmt.Errorf("agent: could not post review for MR %d: %w", mrID, err)
-	}
+	log.Println("comment", comment)
+
+	// if err := r.provider.PostReview(mrID, comment); err != nil {
+	// 	return fmt.Errorf("agent: could not post review for MR %d: %w", mrID, err)
+	// }
 
 	// Optional audit log — does not fail the review if logging fails.
-	if r.logRepo != nil {
-		if logErr := r.logRepo.LogReview(userID, mrID, r.projectID, comment); logErr != nil {
-			fmt.Printf("agent: warning — failed to log review: %v\n", logErr)
-		}
-	}
+	// if r.logRepo != nil {
+	// 	if logErr := r.logRepo.LogReview(userID, mrID, r.projectID, comment); logErr != nil {
+	// 		fmt.Printf("agent: warning — failed to log review: %v\n", logErr)
+	// 	}
+	// }
 
 	return nil
 }

@@ -8,10 +8,10 @@ import (
 // Orchestrate runs the meta-orchestrator prompt, which decides which analysis
 // tasks should be run against the given diff.
 // Falls back to all four tasks if the LLM response cannot be parsed.
-func Orchestrate(ctx context.Context, client LLMClient) ([]string, string, error) {
+func Orchestrate(ctx context.Context, client LLMClient, diff string) ([]string, string, error) {
 	allTasks := []string{"review", "bug", "optimize", "lint"}
 
-	userPrompt := "Given the code diff that was provided, decide which analysis tasks to run. Return the JSON decision."
+	userPrompt := fmt.Sprintf("Given the code diff that was provided, decide which analysis tasks to run. Return the JSON decision.\n\nCode Diff:\n%s", diff)
 
 	raw, err := client.Complete(ctx, PromptMetaOrchestrator, userPrompt)
 	if err != nil {

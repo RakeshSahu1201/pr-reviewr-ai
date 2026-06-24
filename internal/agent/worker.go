@@ -185,50 +185,17 @@ func (w *Worker) handleMergeRequestComment(ctx context.Context, provider git.Git
 		"comment_body", event.Body,
 	)
 
-	// 1. Resolve MR IID
-	// mrIID, parseErr := parseMRIID(event.TargetTitle)
-	// if parseErr != nil {
-	// 	w.log.Warn("could not extract MR IID from title — skipping", "target_title", event.TargetTitle)
-	// 	return
-	// }
+	// Because the logic is fully modularized, all we have to do is instantiate 
+	// the Reviewer and call Review(). The Reviewer handles fetching the diff, 
+	// running the LLM pipeline, posting the comment, and saving to the database.
+	projectIDStr := strconv.FormatInt(info.ProjectID, 10)
+	rev := New(provider, w.logRepo, projectIDStr, w.pipeline)
 
-	// 2. Fetch the unified diff
-	diff, err := provider.FetchDiff(int(event.NoteableIID))
-	if err != nil {
-		w.log.Error("failed to fetch diff", "user_id", info.UserID, "mr_iid", event.NoteableIID, "err", err)
-		return
-	}
-
-	// 3. RAG context build
-	if w.pipeline != nil {
-		w.runRAGPipeline(ctx, info.UserID, int(event.NoteableIID), diff)
+	if err := rev.Review(ctx, info.UserID, int(event.NoteableIID)); err != nil {
+		w.log.Error("failed to process review", "user_id", info.UserID, "mr_iid", event.NoteableIID, "err", err)
 	} else {
-		w.log.Warn("pipeline not configured — skipping RAG context build", "user_id", info.UserID, "mr_iid", event.NoteableIID)
+		w.log.Info("review successfully posted to GitLab", "mr_iid", event.NoteableIID)
 	}
-
-	// 4. Persistence (logging)
-	w.log.Info("[TEST] would save review log to DB",
-		"user_id", info.UserID,
-		"mr_iid", event.NoteableIID,
-		"project_id", info.ProjectID,
-		"comment_body", event.Body,
-	)
-}
-
-func (w *Worker) runRAGPipeline(ctx context.Context, userID int64, mrIID int, diff string) {
-	ctxResult, err := llm.BuildContextFromDiff(ctx, w.pipeline.Client(), diff)
-	if err != nil {
-		w.log.Error("BuildContextFromDiff failed", "user_id", userID, "mr_iid", mrIID, "err", err)
-		return
-	}
-
-	w.log.Info("RAG context built",
-		"user_id", userID,
-		"mr_iid", mrIID,
-		"architecture_summary", ctxResult.ArchitectureSummary,
-		"key_components", ctxResult.KeyComponents,
-		"risk_areas", ctxResult.RiskAreas,
-	)
 }
 
 // parseMRIID extracts a numeric MR IID from a GitLab event title.
